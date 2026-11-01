@@ -303,8 +303,8 @@ router.post(
 
       res.clearCookie("connect.sid", {
         httpOnly: true,
-        secure: false,
-        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
         path: "/",
       });
 

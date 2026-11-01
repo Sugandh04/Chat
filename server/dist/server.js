@@ -13,8 +13,13 @@ import chatRoutes from "./routes/chats.js";
 import { setupChatSockets } from "./sockets/chatSocket.js";
 const app = express();
 const httpServer = http.createServer(app);
+// Trust the first proxy hop (Render / Railway / etc. sit behind a load balancer).
+// Without this, express-session won't set secure cookies correctly.
+app.set("trust proxy", 1);
 const port = Number(process.env.PORT ?? 5000);
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+// Detect whether we are running in production (HTTPS).
+const isProduction = process.env.NODE_ENV === "production";
 const sessionSecret = process.env.SESSION_SECRET;
 const mongoUri = process.env.MONGODB_URI;
 if (!sessionSecret) {
@@ -46,8 +51,10 @@ const sessionMiddleware = session({
     }),
     cookie: {
         httpOnly: true,
-        secure: false, // Local development over HTTP.
-        sameSite: "lax",
+        // In production (HTTPS) cookies must be secure=true and sameSite=none
+        // so they are sent on cross-origin requests (Vercel → Render).
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
         maxAge: 1000 * 60 * 60 * 24 * 7,
         path: "/",
     },
