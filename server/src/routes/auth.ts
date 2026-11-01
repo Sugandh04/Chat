@@ -1,126 +1,318 @@
-import { Router, type Request, type Response } from "express";
-import { storage } from "../config/storage.js";
-import { requireAuth } from "../middleware/auth.js";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { createHash } from "node:crypto";
+import argon2 from "argon2";
+import mongoose from "mongoose";
+import rateLimit from "express-rate-limit";
+
+import { User } from "../models/User.js";
+import { Invite } from "../models/Invite.js";
 
 const router = Router();
 
+// Rate limiting for authentication endpoints.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    message: "Too many attempts. Please try again later.",
+  },
+});
+
+// Regenerate the session and authenticate the user.
+function createAuthenticatedSession(
+  req: Request,
+  userId: string
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      req.session.userId = userId;
+
+      req.session.save((saveError) => {
+        if (saveError) {
+          reject(saveError);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  });
+}
+
 // GET /api/auth/me
-// Returns current active profile; never blocks with 401
-router.get("/me", requireAuth, (req: Request, res: Response) => {
-  const userId = req.currentUserId || req.session?.userId || "user-sugan";
-  const user = storage.getUserById(userId) || storage.upsertUser({
-    id: userId,
-    displayName: req.currentUserName || "Guest User",
-    avatar: "⚡",
-    status: "online",
-  });
+router.get(
+  "/me",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.session.userId;
 
-  res.json({
-    user: {
-      id: user.id,
-      displayName: user.displayName,
-      avatar: user.avatar,
-      status: user.status,
-      email: user.email,
-    },
-  });
-});
+      if (!userId || !mongoose.isValidObjectId(userId)) {
+        res.status(401).json({ message: "Please log in." });
+        return;
+      }
 
-// POST /api/auth/login (or instant join/profile update)
-// Auth is disabled: simply set your display name & avatar and enter
-router.post("/login", (req: Request, res: Response) => {
-  const { displayName, avatar, userId } = req.body ?? {};
+      const user = await User.findById(userId)
+        .select("_id displayName email createdAt")
+        .lean();
 
-  const cleanName = typeof displayName === "string" && displayName.trim()
-    ? displayName.trim().slice(0, 40)
-    : "Guest " + Math.floor(100 + Math.random() * 900);
+      if (!user) {
+        req.session.destroy(() => { });
+        res.status(401).json({
+          message: "User not found. Please log in again.",
+        });
+        return;
+      }
 
-  const cleanId = typeof userId === "string" && userId.trim()
-    ? userId.trim()
-    : "user-" + Math.random().toString(36).substring(2, 8);
-
-  const cleanAvatar = typeof avatar === "string" && avatar ? avatar : "👤";
-
-  const user = storage.upsertUser({
-    id: cleanId,
-    displayName: cleanName,
-    avatar: cleanAvatar,
-    status: "online",
-  });
-
-  if (req.session) {
-    req.session.userId = user.id;
+      res.json({
+        user: {
+          id: user._id.toString(),
+          displayName: user.displayName,
+          email: user.email,
+          createdAt: user.createdAt,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
   }
-
-  res.json({
-    message: "Welcome to PulseChat!",
-    user: {
-      id: user.id,
-      displayName: user.displayName,
-      avatar: user.avatar,
-      status: user.status,
-    },
-  });
-});
+);
 
 // POST /api/auth/register
-// Backward compatibility: acts as instant join without requiring invite token or password
-router.post("/register", (req: Request, res: Response) => {
-  const { displayName, avatar } = req.body ?? {};
+router.post(
+  "/register",
+  authLimiter,
+  async (req: Request, res: Response, next: NextFunction) => {
+    let claimedInviteId: mongoose.Types.ObjectId | null = null;
+    let accountCreated = false;
 
-  const cleanName = typeof displayName === "string" && displayName.trim()
-    ? displayName.trim()
-    : "New User";
+    try {
+      const { displayName, email, password, token } = req.body ?? {};
 
-  const cleanId = "user-" + Math.random().toString(36).substring(2, 8);
-  const user = storage.upsertUser({
-    id: cleanId,
-    displayName: cleanName,
-    avatar: avatar || "🚀",
-    status: "online",
-  });
+      if (
+        typeof displayName !== "string" ||
+        typeof email !== "string" ||
+        typeof password !== "string" ||
+        typeof token !== "string"
+      ) {
+        res.status(400).json({
+          message: "All registration fields are required.",
+        });
+        return;
+      }
 
-  if (req.session) {
-    req.session.userId = user.id;
+      const cleanName = displayName.trim();
+      const cleanEmail = email.trim().toLowerCase();
+
+      if (cleanName.length < 2 || cleanName.length > 50) {
+        res.status(400).json({
+          message: "Display name must be 2–50 characters.",
+        });
+        return;
+      }
+
+      if (password.length < 8 || password.length > 128) {
+        res.status(400).json({
+          message: "Password must be 8–128 characters.",
+        });
+        return;
+      }
+
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        res.status(400).json({
+          message: "Enter a valid email address.",
+        });
+        return;
+      }
+
+      if (!/^[a-f0-9]{64}$/i.test(token)) {
+        res.status(400).json({
+          message: "Invalid invitation token.",
+        });
+        return;
+      }
+
+      // Hash the invitation token before looking it up.
+      const tokenHash = createHash("sha256")
+        .update(token)
+        .digest("hex");
+
+      // Atomically claim an unused, unexpired invitation.
+      const invite = await Invite.findOneAndUpdate(
+        {
+          tokenHash,
+          usedAt: null,
+          expiresAt: { $gt: new Date() },
+        },
+        {
+          $set: { usedAt: new Date() },
+        },
+        {
+          new: true,
+        }
+      );
+
+      if (!invite) {
+        res.status(400).json({
+          message: "Invitation is invalid, expired, or already used.",
+        });
+        return;
+      }
+
+      claimedInviteId = invite._id;
+
+      const existingUser = await User.findOne({
+        email: cleanEmail,
+      }).lean();
+
+      if (existingUser) {
+        await Invite.updateOne(
+          { _id: invite._id, usedAt: invite.usedAt },
+          { $set: { usedAt: null } }
+        );
+
+        claimedInviteId = null;
+
+        res.status(409).json({
+          message: "An account with this email already exists.",
+        });
+        return;
+      }
+
+      const passwordHash = await argon2.hash(password);
+
+      const user = await User.create({
+        displayName: cleanName,
+        email: cleanEmail,
+        passwordHash,
+      });
+
+      accountCreated = true;
+
+      // Authenticate the newly registered user.
+      await createAuthenticatedSession(req, user._id.toString());
+
+      res.status(201).json({
+        message: "Account created successfully.",
+        user: {
+          id: user._id.toString(),
+          displayName: user.displayName,
+          email: user.email,
+        },
+      });
+    } catch (error) {
+      // Restore the invitation only if account creation did not succeed.
+      if (claimedInviteId && !accountCreated) {
+        try {
+          await Invite.updateOne(
+            {
+              _id: claimedInviteId,
+              usedAt: { $ne: null },
+            },
+            {
+              $set: { usedAt: null },
+            }
+          );
+        } catch (restoreError) {
+          console.error(
+            "[Auth] Failed to restore invitation:",
+            restoreError
+          );
+        }
+      }
+
+      next(error);
+    }
   }
+);
 
-  res.status(201).json({
-    message: "Profile created successfully!",
-    user,
-  });
-});
+// POST /api/auth/login
+router.post(
+  "/login",
+  authLimiter,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { email, password } = req.body ?? {};
 
-// POST /api/auth/profile
-// Update user display name and avatar on the fly
-router.post("/profile", requireAuth, (req: Request, res: Response) => {
-  const userId = req.currentUserId || "user-sugan";
-  const { displayName, avatar } = req.body ?? {};
+      if (
+        typeof email !== "string" ||
+        typeof password !== "string" ||
+        !email.trim() ||
+        !password
+      ) {
+        res.status(400).json({
+          message: "Email and password are required.",
+        });
+        return;
+      }
 
-  if (!displayName || typeof displayName !== "string" || !displayName.trim()) {
-    res.status(400).json({ message: "Display name cannot be empty" });
-    return;
+      const user = await User.findOne({
+        email: email.trim().toLowerCase(),
+      }).select("+passwordHash");
+
+      if (!user) {
+        res.status(401).json({
+          message: "Invalid email or password.",
+        });
+        return;
+      }
+
+      const passwordMatches = await argon2.verify(
+        user.passwordHash,
+        password
+      );
+
+      if (!passwordMatches) {
+        res.status(401).json({
+          message: "Invalid email or password.",
+        });
+        return;
+      }
+
+      await createAuthenticatedSession(req, user._id.toString());
+
+      res.json({
+        message: "Login successful.",
+        user: {
+          id: user._id.toString(),
+          displayName: user.displayName,
+          email: user.email,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
   }
-
-  const updated = storage.upsertUser({
-    id: userId,
-    displayName: displayName.trim().slice(0, 40),
-    avatar: avatar || "✨",
-    status: "online",
-  });
-
-  res.json({
-    message: "Profile updated",
-    user: updated,
-  });
-});
+);
 
 // POST /api/auth/logout
-router.post("/logout", (req: Request, res: Response) => {
-  if (req.session) {
-    req.session.destroy(() => {});
+router.post(
+  "/logout",
+  (req: Request, res: Response, next: NextFunction) => {
+    req.session.destroy((error) => {
+      if (error) {
+        next(error);
+        return;
+      }
+
+      res.clearCookie("connect.sid", {
+        httpOnly: true,
+        secure: false,
+        sameSite: "lax",
+        path: "/",
+      });
+
+      res.json({
+        message: "Logged out successfully.",
+      });
+    });
   }
-  res.clearCookie("connect.sid");
-  res.status(200).json({ message: "Logged out" });
-});
+);
 
 export default router;

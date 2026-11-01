@@ -26,19 +26,19 @@ export interface ChatChannel {
 
 export interface ChatMessage {
   id: string;
-  targetId: string; // channel id (e.g. "general") or conversation id
+  targetId: string;
   senderId: string;
   senderName: string;
   senderAvatar: string;
   text: string;
   mediaUrl?: string;
-  reactions: Record<string, string[]>; // emoji -> array of userIds
+  reactions: Record<string, string[]>;
   createdAt: string;
 }
 
 export interface ChatConversation {
   id: string;
-  participants: string[]; // userIds
+  participants: string[];
   lastMessageAt: string;
 }
 
@@ -74,7 +74,7 @@ const DEFAULT_CHANNELS: ChatChannel[] = [
   {
     id: "announcements",
     name: "announcements",
-    description: "Community updates, new releases, and broadcast news.",
+    description: "Channel for announcements.",
     createdAt: new Date().toISOString(),
     isDefault: true,
   },
@@ -157,6 +157,7 @@ class StorageManager {
       messages: [...DEFAULT_MESSAGES],
       conversations: [],
     };
+
     this.load();
   }
 
@@ -169,6 +170,7 @@ class StorageManager {
       if (fs.existsSync(DB_FILE)) {
         const raw = fs.readFileSync(DB_FILE, "utf-8");
         const parsed = JSON.parse(raw) as Partial<DatabaseSchema>;
+
         if (parsed.users && parsed.channels && parsed.messages) {
           this.data = {
             users: parsed.users,
@@ -176,15 +178,20 @@ class StorageManager {
             messages: parsed.messages,
             conversations: parsed.conversations ?? [],
           };
-          console.log(`[Storage] Loaded ${this.data.messages.length} messages, ${this.data.channels.length} channels, ${this.data.users.length} users from local store.`);
+
+          console.log(
+            `[Storage] Loaded ${this.data.messages.length} messages, ${this.data.channels.length} channels, ${this.data.users.length} users from local store.`
+          );
           return;
         }
       }
 
-      // If no file exists, save default
       this.save();
     } catch (err) {
-      console.error("[Storage] Failed to load data from disk, using defaults:", err);
+      console.error(
+        "[Storage] Failed to load data from disk, using defaults:",
+        err
+      );
     }
   }
 
@@ -193,13 +200,14 @@ class StorageManager {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
+
       fs.writeFileSync(DB_FILE, JSON.stringify(this.data, null, 2), "utf-8");
     } catch (err) {
       console.error("[Storage] Failed to save database to disk:", err);
     }
   }
 
-  // --- Users ---
+  // Users
   getUsers(): ChatUser[] {
     return this.data.users;
   }
@@ -208,8 +216,11 @@ class StorageManager {
     return this.data.users.find((u) => u.id === id);
   }
 
-  upsertUser(user: Partial<ChatUser> & { id: string; displayName: string }): ChatUser {
+  upsertUser(
+    user: Partial<ChatUser> & { id: string; displayName: string }
+  ): ChatUser {
     const existingIndex = this.data.users.findIndex((u) => u.id === user.id);
+
     const updated: ChatUser = {
       id: user.id,
       displayName: user.displayName.trim(),
@@ -220,16 +231,21 @@ class StorageManager {
     };
 
     if (existingIndex >= 0) {
-      this.data.users[existingIndex] = { ...this.data.users[existingIndex], ...updated };
+      this.data.users[existingIndex] = {
+        ...this.data.users[existingIndex],
+        ...updated,
+      };
     } else {
       this.data.users.push(updated);
     }
+
     this.save();
     return updated;
   }
 
   setUserStatus(id: string, status: "online" | "idle" | "offline"): void {
     const user = this.getUserById(id);
+
     if (user) {
       user.status = status;
       user.lastSeen = new Date().toISOString();
@@ -237,17 +253,23 @@ class StorageManager {
     }
   }
 
-  // --- Channels ---
+  // Channels
   getChannels(): ChatChannel[] {
     return this.data.channels;
   }
 
   getChannelById(id: string): ChatChannel | undefined {
-    return this.data.channels.find((c) => c.id === id || c.name.toLowerCase() === id.toLowerCase());
+    return this.data.channels.find(
+      (c) => c.id === id || c.name.toLowerCase() === id.toLowerCase()
+    );
   }
 
   createChannel(name: string, description = ""): ChatChannel {
-    const cleanId = name.toLowerCase().replace(/[^a-z0-9-_]/g, "-").replace(/^-+|-+$/g, "");
+    const cleanId = name
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, "-")
+      .replace(/^-+|-+$/g, "");
+
     const existing = this.getChannelById(cleanId);
     if (existing) return existing;
 
@@ -257,21 +279,31 @@ class StorageManager {
       description: description.trim() || `Channel for #${cleanId}`,
       createdAt: new Date().toISOString(),
     };
+
     this.data.channels.push(channel);
     this.save();
     return channel;
   }
 
-  // --- Messages ---
-  getMessages(targetId: string, limit = 100, before?: string): { messages: ChatMessage[]; hasMore: boolean } {
+  // Messages
+  getMessages(
+    targetId: string,
+    limit = 100,
+    before?: string
+  ): { messages: ChatMessage[]; hasMore: boolean } {
     let filtered = this.data.messages.filter((m) => m.targetId === targetId);
 
     if (before) {
       const beforeDate = new Date(before).getTime();
-      filtered = filtered.filter((m) => new Date(m.createdAt).getTime() < beforeDate);
+      filtered = filtered.filter(
+        (m) => new Date(m.createdAt).getTime() < beforeDate
+      );
     }
 
-    filtered.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    filtered.sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
 
     const hasMore = filtered.length > limit;
     const messages = filtered.slice(-limit);
@@ -294,14 +326,13 @@ class StorageManager {
       senderName: msg.senderName,
       senderAvatar: msg.senderAvatar || "👤",
       text: msg.text.trim(),
-      mediaUrl: msg.mediaUrl,
+      ...(msg.mediaUrl !== undefined ? { mediaUrl: msg.mediaUrl } : {}),
       reactions: {},
       createdAt: new Date().toISOString(),
     };
 
     this.data.messages.push(newMsg);
 
-    // Keep message history healthy (last 2000 messages)
     if (this.data.messages.length > 2000) {
       this.data.messages = this.data.messages.slice(-2000);
     }
@@ -310,7 +341,11 @@ class StorageManager {
     return newMsg;
   }
 
-  toggleReaction(messageId: string, emoji: string, userId: string): ChatMessage | null {
+  toggleReaction(
+    messageId: string,
+    emoji: string,
+    userId: string
+  ): ChatMessage | null {
     const message = this.data.messages.find((m) => m.id === messageId);
     if (!message) return null;
 
@@ -323,14 +358,14 @@ class StorageManager {
     }
 
     const index = message.reactions[emoji].indexOf(userId);
+
     if (index >= 0) {
-      // remove reaction
       message.reactions[emoji].splice(index, 1);
+
       if (message.reactions[emoji].length === 0) {
         delete message.reactions[emoji];
       }
     } else {
-      // add reaction
       message.reactions[emoji].push(userId);
     }
 
@@ -340,57 +375,80 @@ class StorageManager {
 
   deleteMessage(messageId: string): boolean {
     const initialLen = this.data.messages.length;
-    this.data.messages = this.data.messages.filter((m) => m.id !== messageId);
+
+    this.data.messages = this.data.messages.filter(
+      (m) => m.id !== messageId
+    );
+
     if (this.data.messages.length !== initialLen) {
       this.save();
       return true;
     }
+
     return false;
   }
 
-  // --- Direct Conversations ---
-  getConversations(userId: string): Array<{
+  // Direct Conversations
+  getConversations(
+    userId: string
+  ): Array<{
     id: string;
     participant: ChatUser;
     lastMessage?: ChatMessage;
     lastMessageAt: string;
   }> {
-    const directMessages = this.data.messages.filter((m) => m.targetId.startsWith("dm:"));
+    const directMessages = this.data.messages.filter((m) =>
+      m.targetId.startsWith("dm:")
+    );
+
     const participantsSet = new Set<string>();
 
     for (const msg of directMessages) {
       const parts = msg.targetId.replace("dm:", "").split(":");
+
       if (parts.includes(userId)) {
         const otherId = parts.find((p) => p !== userId);
         if (otherId) participantsSet.add(otherId);
       }
     }
 
-    // Also include other active users
     for (const u of this.data.users) {
       if (u.id !== userId) {
         participantsSet.add(u.id);
       }
     }
 
-    const results = [];
+    const results: Array<{
+      id: string;
+      participant: ChatUser;
+      lastMessage?: ChatMessage;
+      lastMessageAt: string;
+    }> = [];
+
     for (const otherId of participantsSet) {
       const otherUser = this.getUserById(otherId);
       if (!otherUser) continue;
 
       const dmKey = `dm:${[userId, otherId].sort().join(":")}`;
-      const dmMessages = this.data.messages.filter((m) => m.targetId === dmKey);
+      const dmMessages = this.data.messages.filter(
+        (m) => m.targetId === dmKey
+      );
       const lastMsg = dmMessages[dmMessages.length - 1];
 
       results.push({
         id: dmKey,
         participant: otherUser,
-        lastMessage: lastMsg,
+        ...(lastMsg !== undefined ? { lastMessage: lastMsg } : {}),
         lastMessageAt: lastMsg?.createdAt || otherUser.lastSeen,
       });
     }
 
-    results.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+    results.sort(
+      (a, b) =>
+        new Date(b.lastMessageAt).getTime() -
+        new Date(a.lastMessageAt).getTime()
+    );
+
     return results;
   }
 }

@@ -1,172 +1,309 @@
-import { Server as SocketIOServer, Socket } from "socket.io";
-import { storage } from "../config/storage.js";
+import { Server as SocketIOServer, type Socket } from "socket.io";
+import mongoose from "mongoose";
+
+import { User } from "../models/User.js";
+import { Conversation } from "../models/Conversation.js";
+import { Message } from "../models/Message.js";
 
 interface ActiveSocketUser {
   socketId: string;
   userId: string;
   displayName: string;
-  avatar: string;
+}
+
+interface ConversationPayload {
+  conversationId: string;
+}
+
+interface SendMessagePayload {
+  conversationId: string;
+  text: string;
+}
+
+interface SendMessageResult {
+  success: boolean;
+  message?: {
+    id: string;
+    conversationId: string;
+    senderId: string;
+    text: string;
+    createdAt: Date;
+  };
+  error?: string;
 }
 
 const activeSockets = new Map<string, ActiveSocketUser>();
 
-export function setupChatSockets(io: SocketIOServer): void {
-  io.on("connection", (socket: Socket) => {
-    console.log(`[Socket] Client connected: ${socket.id}`);
+function getOnlineUserIds(): string[] {
+  return [
+    ...new Set(
+      Array.from(activeSockets.values()).map(
+        (activeUser) => activeUser.userId
+      )
+    ),
+  ];
+}
 
-    // Register active user
-    socket.on("user_connected", (userData: { userId: string; displayName: string; avatar?: string }) => {
-      if (!userData?.userId) return;
+function isValidConversationId(id: unknown): id is string {
+  return (
+    typeof id === "string" &&
+    /^[a-f\d]{24}$/i.test(id)
+  );
+}
+
+export function setupChatSockets(io: SocketIOServer): void {
+  io.on("connection", async (socket: Socket) => {
+    try {
+      // Authenticate using the shared Express session.
+      const session = (
+        socket.request as typeof socket.request & {
+          session?: { userId?: string };
+        }
+      ).session;
+
+      const userId = session?.userId;
+
+      if (!userId || !mongoose.isValidObjectId(userId)) {
+        socket.disconnect(true);
+        return;
+      }
+
+      const user = await User.findById(userId)
+        .select("_id displayName")
+        .lean();
+
+      if (!user) {
+        socket.disconnect(true);
+        return;
+      }
+
+      const authenticatedUserId = user._id.toString();
 
       activeSockets.set(socket.id, {
         socketId: socket.id,
-        userId: userData.userId,
-        displayName: userData.displayName || "Anonymous",
-        avatar: userData.avatar || "👤",
+        userId: authenticatedUserId,
+        displayName: user.displayName,
       });
 
-      storage.setUserStatus(userData.userId, "online");
+      console.log(`[Socket] ${user.displayName} connected`);
 
-      // Broadcast presence update
       io.emit("presence_update", {
-        users: storage.getUsers(),
-        onlineUserIds: Array.from(activeSockets.values()).map((u) => u.userId),
+        onlineUserIds: getOnlineUserIds(),
       });
-    });
 
-    // Join a channel or conversation room
-    socket.on("join_channel", ({ targetId }: { targetId: string }) => {
-      if (!targetId) return;
-      const room = `room:${targetId}`;
-      socket.join(room);
-      console.log(`[Socket] ${socket.id} joined room ${room}`);
-    });
+      // ==========================================
+      // JOIN CONVERSATION
+      // ==========================================
 
-    // Leave a room
-    socket.on("leave_channel", ({ targetId }: { targetId: string }) => {
-      if (!targetId) return;
-      socket.leave(`room:${targetId}`);
-    });
+      socket.on(
+        "join_conversation",
+        async (data: ConversationPayload) => {
+          try {
+            const conversationId = data?.conversationId;
 
-    // Typing start
-    socket.on("typing_start", ({ targetId, userName }: { targetId: string; userName: string }) => {
-      if (!targetId) return;
-      socket.to(`room:${targetId}`).emit("user_typing", {
-        targetId,
-        userName,
-      });
-    });
+            if (!isValidConversationId(conversationId)) return;
 
-    // Typing stop
-    socket.on("typing_stop", ({ targetId, userName }: { targetId: string; userName: string }) => {
-      if (!targetId) return;
-      socket.to(`room:${targetId}`).emit("user_stop_typing", {
-        targetId,
-        userName,
-      });
-    });
+            const conversation = await Conversation.findOne({
+              _id: conversationId,
+              participants: authenticatedUserId,
+            }).select("_id");
 
-    // Send Message
-    socket.on(
-      "send_message",
-      async (msgData: {
-        targetId: string;
-        text: string;
-        senderId: string;
-        senderName: string;
-        senderAvatar?: string;
-        mediaUrl?: string;
-      }) => {
-        if (!msgData?.targetId || !msgData?.text?.trim()) return;
+            if (!conversation) {
+              socket.emit("socket_error", {
+                message: "You are not a participant in this conversation.",
+              });
+              return;
+            }
 
-        const message = storage.addMessage({
-          targetId: msgData.targetId,
-          senderId: msgData.senderId || "user-sugan",
-          senderName: msgData.senderName || "Sugan",
-          senderAvatar: msgData.senderAvatar || "⚡",
-          text: msgData.text.trim(),
-          mediaUrl: msgData.mediaUrl,
-        });
+            await socket.join(`conversation:${conversationId}`);
 
-        // Broadcast to everyone in the room
-        io.to(`room:${msgData.targetId}`).emit("new_message", message);
-
-        // If user chats in general or mentions bot, trigger a friendly response
-        if (msgData.text.toLowerCase().includes("@spark") || msgData.text.toLowerCase().includes("bot")) {
-          setTimeout(() => {
-            const botReplies = [
-              "I'm here! Everything is running in real-time with WebSockets! ⚡",
-              "Looking great! You can react to messages with emojis or switch channels anytime.",
-              "PulseChat is fully operational. Try sharing an emoji or starting a direct message! 🚀",
-              "Real-time sync confirmed! Feel free to create new channels with the + button.",
-            ];
-            const replyText = botReplies[Math.floor(Math.random() * botReplies.length)];
-            const botMsg = storage.addMessage({
-              targetId: msgData.targetId,
-              senderId: "bot-spark",
-              senderName: "Spark AI",
-              senderAvatar: "🤖",
-              text: replyText,
+            socket.emit("conversation_joined", {
+              conversationId,
             });
-            io.to(`room:${msgData.targetId}`).emit("new_message", botMsg);
-          }, 800);
+          } catch (error) {
+            console.error("[Socket] Join conversation failed:", error);
+          }
         }
-      }
-    );
+      );
 
-    // Toggle reaction
-    socket.on(
-      "toggle_reaction",
-      ({
-        messageId,
-        emoji,
-        userId,
-        targetId,
-      }: {
-        messageId: string;
-        emoji: string;
-        userId: string;
-        targetId: string;
-      }) => {
-        if (!messageId || !emoji || !userId) return;
+      // ==========================================
+      // LEAVE CONVERSATION
+      // ==========================================
 
-        const updated = storage.toggleReaction(messageId, emoji, userId);
-        if (updated && targetId) {
-          io.to(`room:${targetId}`).emit("reaction_updated", {
-            messageId,
-            reactions: updated.reactions,
-          });
+      socket.on(
+        "leave_conversation",
+        async (data: ConversationPayload) => {
+          const conversationId = data?.conversationId;
+
+          if (!isValidConversationId(conversationId)) return;
+
+          await socket.leave(`conversation:${conversationId}`);
         }
-      }
-    );
+      );
 
-    // Delete message
-    socket.on("delete_message", ({ messageId, targetId }: { messageId: string; targetId: string }) => {
-      if (!messageId) return;
-      const success = storage.deleteMessage(messageId);
-      if (success && targetId) {
-        io.to(`room:${targetId}`).emit("message_deleted", { messageId });
-      }
-    });
+      // ==========================================
+      // TYPING INDICATORS
+      // ==========================================
 
-    // Disconnect
-    socket.on("disconnect", () => {
-      const activeUser = activeSockets.get(socket.id);
-      if (activeUser) {
+      socket.on(
+        "typing_start",
+        async (data: ConversationPayload) => {
+          try {
+            const conversationId = data?.conversationId;
+
+            if (!isValidConversationId(conversationId)) return;
+
+            const isMember = await Conversation.exists({
+              _id: conversationId,
+              participants: authenticatedUserId,
+            });
+
+            if (!isMember) return;
+
+            socket.to(`conversation:${conversationId}`).emit("user_typing", {
+              conversationId,
+              userId: authenticatedUserId,
+              displayName: user.displayName,
+            });
+          } catch (error) {
+            console.error("[Socket] Typing start failed:", error);
+          }
+        }
+      );
+
+      socket.on(
+        "typing_stop",
+        async (data: ConversationPayload) => {
+          try {
+            const conversationId = data?.conversationId;
+
+            if (!isValidConversationId(conversationId)) return;
+
+            const isMember = await Conversation.exists({
+              _id: conversationId,
+              participants: authenticatedUserId,
+            });
+
+            if (!isMember) return;
+
+            socket.to(`conversation:${conversationId}`).emit(
+              "user_stop_typing",
+              {
+                conversationId,
+                userId: authenticatedUserId,
+              }
+            );
+          } catch (error) {
+            console.error("[Socket] Typing stop failed:", error);
+          }
+        }
+      );
+
+      // ==========================================
+      // SEND MESSAGE
+      // ==========================================
+
+      socket.on(
+        "send_message",
+        async (
+          data: SendMessagePayload,
+          callback?: (result: SendMessageResult) => void
+        ) => {
+          try {
+            const conversationId = data?.conversationId;
+            const text =
+              typeof data?.text === "string" ? data.text.trim() : "";
+
+            if (!isValidConversationId(conversationId)) {
+              callback?.({
+                success: false,
+                error: "Invalid conversation.",
+              });
+              return;
+            }
+
+            if (!text || text.length > 4000) {
+              callback?.({
+                success: false,
+                error: "Message must contain 1–4000 characters.",
+              });
+              return;
+            }
+
+            const conversation = await Conversation.findOne({
+              _id: conversationId,
+              participants: authenticatedUserId,
+            });
+
+            if (!conversation) {
+              callback?.({
+                success: false,
+                error: "Conversation not found or access denied.",
+              });
+              return;
+            }
+
+            const message = await Message.create({
+              conversationId: conversation._id,
+              senderId: authenticatedUserId,
+              text,
+            });
+
+            await Conversation.updateOne(
+              { _id: conversation._id },
+              { $set: { lastMessageAt: message.createdAt } }
+            );
+
+            const messagePayload = {
+              id: message._id.toString(),
+              conversationId: conversation._id.toString(),
+              senderId: authenticatedUserId,
+              text: message.text,
+              createdAt: message.createdAt,
+            };
+
+            io.to(`conversation:${conversationId}`).emit(
+              "new_message",
+              messagePayload
+            );
+
+            callback?.({
+              success: true,
+              message: messagePayload,
+            });
+          } catch (error) {
+            console.error("[Socket] Send message failed:", error);
+
+            callback?.({
+              success: false,
+              error: "Unable to send message.",
+            });
+          }
+        }
+      );
+
+      // ==========================================
+      // DISCONNECT
+      // ==========================================
+
+      socket.on("disconnect", () => {
         activeSockets.delete(socket.id);
 
-        // Check if user has other tabs open
-        const stillConnected = Array.from(activeSockets.values()).some((u) => u.userId === activeUser.userId);
+        const stillConnected = Array.from(activeSockets.values()).some(
+          (activeUser) => activeUser.userId === authenticatedUserId
+        );
+
         if (!stillConnected) {
-          storage.setUserStatus(activeUser.userId, "offline");
+          io.emit("presence_update", {
+            onlineUserIds: getOnlineUserIds(),
+          });
         }
 
-        io.emit("presence_update", {
-          users: storage.getUsers(),
-          onlineUserIds: Array.from(activeSockets.values()).map((u) => u.userId),
-        });
-      }
-      console.log(`[Socket] Client disconnected: ${socket.id}`);
-    });
+        console.log(`[Socket] ${user.displayName} disconnected`);
+      });
+    } catch (error) {
+      console.error("[Socket] Authentication failed:", error);
+      socket.disconnect(true);
+    }
   });
 }

@@ -2,31 +2,46 @@ import mongoose from "mongoose";
 
 export let isMongoDBConnected = false;
 
-export async function connectDB(): Promise<boolean> {
+export async function connectDB(): Promise<void> {
   const uri = process.env.MONGODB_URI;
 
   if (!uri) {
-    console.log("[Database] MONGODB_URI not specified. Using high-performance Local Storage.");
-    return false;
+    throw new Error("[Database] MONGODB_URI is missing from environment variables.");
   }
 
+  mongoose.connection.on("connected", () => {
+    isMongoDBConnected = true;
+    console.log("✅ MongoDB connected");
+  });
+
+  mongoose.connection.on("disconnected", () => {
+    isMongoDBConnected = false;
+    console.warn("⚠️ MongoDB disconnected");
+  });
+
+  mongoose.connection.on("error", (error) => {
+    console.error("[Database] Connection error:", error);
+  });
+
   try {
-    console.log("[Database] Connecting to MongoDB (timeout: 3.5s)...");
+    console.log("[Database] Connecting to MongoDB...");
+
     await mongoose.connect(uri, {
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
       family: 4,
-      serverSelectionTimeoutMS: 3500,
-      tls: true,
-      tlsAllowInvalidCertificates: true,
     });
 
     isMongoDBConnected = true;
-    console.log("✅ MongoDB connected successfully");
-    return true;
+    console.log("✅ MongoDB connection established successfully");
   } catch (error: unknown) {
     isMongoDBConnected = false;
-    const msg = error instanceof Error ? error.message : String(error);
-    console.warn(`⚠️ MongoDB connection unavailable (${msg}).`);
-    console.log("🚀 Running seamlessly on resilient Local Persistent Database (data/chat_db.json).");
-    return false;
+
+    const message =
+      error instanceof Error ? error.message : String(error);
+
+    console.error("[Database] Connection failed:", message);
+
+    throw error;
   }
 }

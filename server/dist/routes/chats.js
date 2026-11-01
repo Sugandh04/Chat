@@ -1,37 +1,37 @@
 import { Router } from "express";
-import { Types } from "mongoose";
+import mongoose, { Types } from "mongoose";
 import { User } from "../models/User.js";
 import { Conversation } from "../models/Conversation.js";
 import { Message } from "../models/Message.js";
 import { requireAuth } from "../middleware/auth.js";
 const router = Router();
 router.use(requireAuth);
-function getCurrentUserId(req) {
-    return req.session.userId ?? null;
+// Get authenticated user's MongoDB ID.
+function getUserId(req) {
+    return new Types.ObjectId(req.currentUserId);
 }
-function isValidObjectId(id) {
-    return Types.ObjectId.isValid(id);
+// Validate MongoDB ObjectId.
+function isValidId(id) {
+    return typeof id === "string" && /^[a-f\d]{24}$/i.test(id);
 }
+// ==========================================
+// USERS
+// ==========================================
 // GET /api/chats/users
-// List users available to start a conversation with.
 router.get("/users", async (req, res, next) => {
     try {
-        const userId = getCurrentUserId(req);
-        if (!userId || !isValidObjectId(userId)) {
-            res.status(401).json({ message: "Please log in" });
-            return;
-        }
+        const userId = getUserId(req);
         const users = await User.find({
-            _id: { $ne: new Types.ObjectId(userId) },
+            _id: { $ne: userId },
         })
-            .select("_id displayName")
+            .select("_id displayName email")
             .sort({ displayName: 1 })
-            .limit(200)
             .lean();
         res.json({
             users: users.map((user) => ({
                 id: user._id.toString(),
                 displayName: user.displayName,
+                email: user.email,
             })),
         });
     }
@@ -39,57 +39,45 @@ router.get("/users", async (req, res, next) => {
         next(error);
     }
 });
+// ==========================================
+// CONVERSATIONS
+// ==========================================
 // GET /api/chats/conversations
-// List the current user's conversations.
 router.get("/conversations", async (req, res, next) => {
     try {
-        const userId = getCurrentUserId(req);
-        if (!userId || !isValidObjectId(userId)) {
-            res.status(401).json({ message: "Please log in" });
-            return;
-        }
+        const userId = getUserId(req);
         const conversations = await Conversation.find({
-            participants: new Types.ObjectId(userId),
+            participants: userId,
         })
             .sort({ lastMessageAt: -1 })
-            .exec();
-        const results = await Promise.all(conversations.map(async (conversation) => {
-            const otherParticipantId = conversation.participants.find((participantId) => participantId.toString() !== userId);
-            if (!otherParticipantId) {
-                return null;
-            }
-            const [otherUser, lastMessage] = await Promise.all([
-                User.findById(otherParticipantId)
-                    .select("_id displayName")
-                    .lean(),
-                Message.findOne({
-                    conversationId: conversation._id,
-                })
-                    .sort({ createdAt: -1, _id: -1 })
-                    .lean(),
-            ]);
-            if (!otherUser) {
-                return null;
-            }
-            return {
-                id: conversation._id.toString(),
-                participant: {
-                    id: otherUser._id.toString(),
-                    displayName: otherUser.displayName,
-                },
-                lastMessage: lastMessage
-                    ? {
-                        id: lastMessage._id.toString(),
-                        senderId: lastMessage.senderId.toString(),
-                        text: lastMessage.text,
-                        createdAt: lastMessage.createdAt,
-                    }
-                    : null,
-                lastMessageAt: conversation.lastMessageAt,
-            };
-        }));
+            .lean();
+        const otherUserIds = conversations
+            .flatMap((conversation) => conversation.participants)
+            .filter((id) => !id.equals(userId));
+        const otherUsers = await User.find({
+            _id: { $in: otherUserIds },
+        })
+            .select("_id displayName email")
+            .lean();
+        const userMap = new Map(otherUsers.map((user) => [user._id.toString(), user]));
         res.json({
-            conversations: results.filter((conversation) => conversation !== null),
+            conversations: conversations.map((conversation) => {
+                const otherParticipantId = conversation.participants.find((id) => !id.equals(userId));
+                const otherParticipant = otherParticipantId
+                    ? userMap.get(otherParticipantId.toString())
+                    : undefined;
+                return {
+                    id: conversation._id.toString(),
+                    participant: otherParticipant
+                        ? {
+                            id: otherParticipant._id.toString(),
+                            displayName: otherParticipant.displayName,
+                            email: otherParticipant.email,
+                        }
+                        : null,
+                    lastMessageAt: conversation.lastMessageAt,
+                };
+            }),
         });
     }
     catch (error) {
@@ -97,61 +85,69 @@ router.get("/conversations", async (req, res, next) => {
     }
 });
 // POST /api/chats/conversations
-// Create a conversation or return the existing one.
 router.post("/conversations", async (req, res, next) => {
     try {
-        const userId = getCurrentUserId(req);
-        if (!userId || !isValidObjectId(userId)) {
-            res.status(401).json({ message: "Please log in" });
-            return;
-        }
+        const userId = getUserId(req);
         const { participantId } = req.body ?? {};
-        if (typeof participantId !== "string" ||
-            !isValidObjectId(participantId) ||
-            participantId === userId) {
+        if (!isValidId(participantId)) {
             res.status(400).json({
-                message: "Invalid conversation participant",
+                message: "A valid participant ID is required.",
             });
             return;
         }
-        const otherUser = await User.findById(participantId)
-            .select("_id displayName")
-            .lean();
-        if (!otherUser) {
-            res.status(404).json({ message: "User not found" });
+        const otherUserId = new Types.ObjectId(participantId);
+        if (userId.equals(otherUserId)) {
+            res.status(400).json({
+                message: "You cannot start a conversation with yourself.",
+            });
             return;
         }
-        const participantIds = [userId, participantId].sort();
+        const otherUser = await User.findById(otherUserId)
+            .select("_id displayName email")
+            .lean();
+        if (!otherUser) {
+            res.status(404).json({
+                message: "Participant not found.",
+            });
+            return;
+        }
+        // Sort IDs to ensure A-B and B-A produce the same key.
+        const participantIds = [
+            userId.toString(),
+            otherUserId.toString(),
+        ].sort();
         const participantKey = participantIds.join(":");
-        let conversation = await Conversation.findOne({
-            participantKey,
-        });
-        if (!conversation) {
-            try {
-                conversation = await Conversation.create({
+        let conversation;
+        try {
+            conversation = await Conversation.findOneAndUpdate({ participantKey }, {
+                $setOnInsert: {
                     participants: participantIds.map((id) => new Types.ObjectId(id)),
                     participantKey,
                     lastMessageAt: new Date(),
+                },
+            }, {
+                new: true,
+                upsert: true,
+                runValidators: true,
+                setDefaultsOnInsert: true,
+            });
+        }
+        catch (error) {
+            if (typeof error === "object" &&
+                error !== null &&
+                "code" in error &&
+                error.code === 11000) {
+                conversation = await Conversation.findOne({
+                    participantKey,
                 });
             }
-            catch (error) {
-                // A concurrent request may have created this conversation.
-                if (typeof error === "object" &&
-                    error !== null &&
-                    "code" in error &&
-                    error.code === 11000) {
-                    conversation = await Conversation.findOne({
-                        participantKey,
-                    });
-                }
-                else {
-                    throw error;
-                }
+            else {
+                throw error;
             }
         }
         if (!conversation) {
             res.status(500).json({
-                message: "Unable to open conversation",
+                message: "Unable to create conversation.",
             });
             return;
         }
@@ -161,6 +157,7 @@ router.post("/conversations", async (req, res, next) => {
                 participant: {
                     id: otherUser._id.toString(),
                     displayName: otherUser.displayName,
+                    email: otherUser.email,
                 },
                 lastMessageAt: conversation.lastMessageAt,
             },
@@ -170,63 +167,98 @@ router.post("/conversations", async (req, res, next) => {
         next(error);
     }
 });
+// ==========================================
+// MESSAGES
+// ==========================================
 // GET /api/chats/conversations/:conversationId/messages
-// Fetch a page of messages. Use `before` for older messages.
 router.get("/conversations/:conversationId/messages", async (req, res, next) => {
     try {
-        const userId = getCurrentUserId(req);
-        const conversationId = String(req.params.conversationId);
-        if (!userId || !isValidObjectId(userId)) {
-            res.status(401).json({ message: "Please log in" });
-            return;
-        }
-        if (!isValidObjectId(conversationId)) {
+        const userId = getUserId(req);
+        const conversationId = req.params.conversationId;
+        if (!isValidId(conversationId)) {
             res.status(400).json({
-                message: "Invalid conversation ID",
+                message: "Invalid conversation ID.",
             });
             return;
         }
         const conversation = await Conversation.findOne({
-            _id: new Types.ObjectId(conversationId),
-            participants: new Types.ObjectId(userId),
+            _id: conversationId,
+            participants: userId,
         });
         if (!conversation) {
             res.status(404).json({
-                message: "Conversation not found",
+                message: "Conversation not found.",
             });
             return;
         }
-        const requestedLimit = Number(req.query.limit ?? 50);
-        const limit = Number.isInteger(requestedLimit)
-            ? Math.min(Math.max(requestedLimit, 1), 100)
+        const rawLimit = Number(req.query.limit ?? 50);
+        const limit = Number.isFinite(rawLimit)
+            ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
             : 50;
-        let query = Message.find({
+        const before = req.query.before
+            ? String(req.query.before)
+            : undefined;
+        const messageFilter = {
             conversationId: conversation._id,
-        });
-        if (req.query.before !== undefined) {
-            const before = new Date(String(req.query.before));
-            if (Number.isNaN(before.getTime())) {
+        };
+        if (before) {
+            if (!isValidId(before)) {
                 res.status(400).json({
-                    message: "Invalid before timestamp",
+                    message: "Invalid pagination cursor.",
                 });
                 return;
             }
-            query = query.where("createdAt").lt(before.getTime());
+            const cursor = await Message.findOne({
+                _id: before,
+                conversationId: conversation._id,
+            }).select("_id createdAt");
+            if (!cursor) {
+                res.status(400).json({
+                    message: "Invalid pagination cursor.",
+                });
+                return;
+            }
+            messageFilter.$or = [
+                { createdAt: { $lt: cursor.createdAt } },
+                {
+                    createdAt: cursor.createdAt,
+                    _id: { $lt: cursor._id },
+                },
+            ];
         }
-        const rows = await query
+        const results = await Message.find(messageFilter)
             .sort({ createdAt: -1, _id: -1 })
             .limit(limit + 1)
-            .exec();
-        const hasMore = rows.length > limit;
-        const page = rows.slice(0, limit).reverse();
+            .lean();
+        const hasMore = results.length > limit;
+        const messages = results.slice(0, limit).reverse();
+        // Fetch sender details separately to avoid populated-document
+        // TypeScript inference problems.
+        const senderIds = [
+            ...new Set(messages.map((message) => message.senderId.toString())),
+        ];
+        const senders = await User.find({
+            _id: { $in: senderIds },
+        })
+            .select("_id displayName")
+            .lean();
+        const senderMap = new Map(senders.map((sender) => [sender._id.toString(), sender]));
         res.json({
-            messages: page.map((message) => ({
-                id: message._id.toString(),
-                conversationId: message.conversationId.toString(),
-                senderId: message.senderId.toString(),
-                text: message.text,
-                createdAt: message.createdAt,
-            })),
+            messages: messages.map((message) => {
+                const sender = senderMap.get(message.senderId.toString());
+                return {
+                    id: message._id.toString(),
+                    conversationId: message.conversationId.toString(),
+                    sender: sender
+                        ? {
+                            id: sender._id.toString(),
+                            displayName: sender.displayName,
+                        }
+                        : null,
+                    text: message.text,
+                    createdAt: message.createdAt,
+                };
+            }),
             hasMore,
         });
     }
@@ -235,44 +267,44 @@ router.get("/conversations/:conversationId/messages", async (req, res, next) => 
     }
 });
 // POST /api/chats/conversations/:conversationId/messages
-// Send a message.
 router.post("/conversations/:conversationId/messages", async (req, res, next) => {
     try {
-        const userId = getCurrentUserId(req);
-        const conversationId = String(req.params.conversationId);
-        if (!userId || !isValidObjectId(userId)) {
-            res.status(401).json({ message: "Please log in" });
-            return;
-        }
-        if (!isValidObjectId(conversationId)) {
+        const userId = getUserId(req);
+        const conversationId = req.params.conversationId;
+        const { text } = req.body ?? {};
+        if (!isValidId(conversationId)) {
             res.status(400).json({
-                message: "Invalid conversation ID",
+                message: "Invalid conversation ID.",
             });
             return;
         }
-        const { text } = req.body ?? {};
-        if (typeof text !== "string" ||
-            text.trim().length === 0 ||
-            text.trim().length > 4000) {
+        if (typeof text !== "string" || !text.trim()) {
             res.status(400).json({
-                message: "Message must contain 1–4000 characters",
+                message: "Message cannot be empty.",
+            });
+            return;
+        }
+        const cleanText = text.trim();
+        if (cleanText.length > 4000) {
+            res.status(400).json({
+                message: "Message cannot exceed 4000 characters.",
             });
             return;
         }
         const conversation = await Conversation.findOne({
-            _id: new Types.ObjectId(conversationId),
-            participants: new Types.ObjectId(userId),
+            _id: conversationId,
+            participants: userId,
         });
         if (!conversation) {
             res.status(404).json({
-                message: "Conversation not found",
+                message: "Conversation not found.",
             });
             return;
         }
         const message = await Message.create({
             conversationId: conversation._id,
-            senderId: new Types.ObjectId(userId),
-            text: text.trim(),
+            senderId: userId,
+            text: cleanText,
         });
         conversation.lastMessageAt = message.createdAt;
         await conversation.save();
@@ -280,10 +312,56 @@ router.post("/conversations/:conversationId/messages", async (req, res, next) =>
             message: {
                 id: message._id.toString(),
                 conversationId: message.conversationId.toString(),
-                senderId: message.senderId.toString(),
+                sender: {
+                    id: userId.toString(),
+                    displayName: req.currentUserName,
+                },
                 text: message.text,
                 createdAt: message.createdAt,
             },
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// ==========================================
+// DELETE MESSAGE
+// ==========================================
+// DELETE /api/chats/messages/:messageId
+router.delete("/messages/:messageId", async (req, res, next) => {
+    try {
+        const userId = getUserId(req);
+        const messageId = req.params.messageId;
+        if (!isValidId(messageId)) {
+            res.status(400).json({
+                message: "Invalid message ID.",
+            });
+            return;
+        }
+        const message = await Message.findOneAndDelete({
+            _id: messageId,
+            senderId: userId,
+        });
+        if (!message) {
+            res.status(404).json({
+                message: "Message not found or you cannot delete it.",
+            });
+            return;
+        }
+        // Refresh the conversation's latest message timestamp.
+        const latestMessage = await Message.findOne({
+            conversationId: message.conversationId,
+        })
+            .sort({ createdAt: -1, _id: -1 })
+            .select("createdAt");
+        await Conversation.updateOne({ _id: message.conversationId }, {
+            $set: {
+                lastMessageAt: latestMessage?.createdAt ?? message.createdAt,
+            },
+        });
+        res.json({
+            message: "Message deleted successfully.",
         });
     }
     catch (error) {

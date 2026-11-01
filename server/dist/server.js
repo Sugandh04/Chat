@@ -1,117 +1,119 @@
 import "dotenv/config";
+import http from "node:http";
 import express, {} from "express";
 import cors from "cors";
 import helmet from "helmet";
 import session from "express-session";
 import MongoStore from "connect-mongo";
-import mongoose from "mongoose";
-import rateLimit from "express-rate-limit";
-import { connectDB } from "./config/db.js";
+import { Server as SocketIOServer } from "socket.io";
+import { connectDB, isMongoDBConnected } from "./config/db.js";
 import authRoutes from "./routes/auth.js";
 import inviteRoutes from "./routes/invites.js";
 import chatRoutes from "./routes/chats.js";
+import { setupChatSockets } from "./sockets/chatSocket.js";
 const app = express();
-const isProduction = process.env.NODE_ENV === "production";
+const httpServer = http.createServer(app);
 const port = Number(process.env.PORT ?? 5000);
-const clientUrl = process.env.CLIENT_URL;
-const mongoUrl = process.env.MONGODB_URI;
+const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
 const sessionSecret = process.env.SESSION_SECRET;
-if (!clientUrl || !mongoUrl || !sessionSecret) {
-    throw new Error("CLIENT_URL, MONGODB_URI and SESSION_SECRET must be configured");
+const mongoUri = process.env.MONGODB_URI;
+if (!sessionSecret) {
+    throw new Error("SESSION_SECRET is missing from environment variables.");
 }
-if (sessionSecret.length < 32) {
-    throw new Error("SESSION_SECRET must be at least 32 characters");
-}
-if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("PORT must be a valid TCP port");
-}
-if (isProduction) {
-    app.set("trust proxy", 1);
+if (!mongoUri) {
+    throw new Error("MONGODB_URI is missing from environment variables.");
 }
 app.disable("x-powered-by");
-app.use(helmet());
+app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+}));
 app.use(cors({
-    origin: clientUrl,
+    origin: [clientUrl, "http://localhost:5173"],
     credentials: true,
 }));
-app.use(express.json({ limit: "16kb" }));
-app.use(session({
+app.use(express.json({ limit: "2mb" }));
+// Shared session configuration for Express and Socket.IO.
+const sessionMiddleware = session({
     name: "connect.sid",
     secret: sessionSecret,
-    store: MongoStore.create({
-        mongoUrl,
-        collectionName: "sessions",
-        ttl: 60 * 60 * 24,
-    }),
     resave: false,
     saveUninitialized: false,
+    store: MongoStore.create({
+        mongoUrl: mongoUri,
+        collectionName: "sessions",
+        ttl: 60 * 60 * 24 * 7,
+    }),
     cookie: {
         httpOnly: true,
-        secure: isProduction,
+        secure: false, // Local development over HTTP.
         sameSite: "lax",
-        maxAge: 1000 * 60 * 60 * 24,
+        maxAge: 1000 * 60 * 60 * 24 * 7,
         path: "/",
     },
-}));
+});
+app.use(sessionMiddleware);
+// Socket.IO configuration.
+const io = new SocketIOServer(httpServer, {
+    cors: {
+        origin: [clientUrl, "http://localhost:5173"],
+        credentials: true,
+        methods: ["GET", "POST"],
+    },
+});
+// Share Express sessions with Socket.IO connections.
+io.engine.use(sessionMiddleware);
+setupChatSockets(io);
+// Health check.
 app.get("/api/health", (_req, res) => {
-    const connected = mongoose.connection.readyState === 1;
-    res.status(connected ? 200 : 503).json({
-        status: connected ? "ok" : "unavailable",
-        database: connected ? "connected" : "disconnected",
+    res.status(200).json({
+        status: "ok",
+        database: isMongoDBConnected
+            ? "mongodb-connected"
+            : "disconnected",
+        sockets: io.engine.clientsCount,
+        timestamp: new Date().toISOString(),
     });
 });
-const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 10,
-    standardHeaders: "draft-8",
-    legacyHeaders: false,
-});
-const inviteLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 5,
-    standardHeaders: "draft-8",
-    legacyHeaders: false,
-});
-const chatLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    limit: 120,
-    standardHeaders: "draft-8",
-    legacyHeaders: false,
-});
-app.use("/api/auth", authLimiter, authRoutes);
-app.use("/api/invites", inviteLimiter, inviteRoutes);
-app.use("/api/chats", chatLimiter, chatRoutes);
+// API routes.
+app.use("/api/auth", authRoutes);
+app.use("/api/invites", inviteRoutes);
+app.use("/api/chats", chatRoutes);
+// 404 handler.
 app.use((_req, res) => {
-    res.status(404).json({ message: "Route not found" });
+    res.status(404).json({
+        message: "Route not found",
+    });
 });
+// Global error handler.
 app.use((error, _req, res, _next) => {
-    console.error("Request failed:", error);
+    console.error("[Server] Request failed:", error);
     if (res.headersSent)
         return;
     res.status(500).json({
         message: "Internal server error",
     });
 });
+// Start server only after MongoDB connects.
 async function startServer() {
-    await connectDB();
-    const server = app.listen(port, () => {
-        console.log(`API running at http://localhost:${port}`);
-    });
-    let shuttingDown = false;
-    const shutdown = () => {
-        if (shuttingDown)
-            return;
-        shuttingDown = true;
-        console.log("Shutting down server...");
-        server.close(() => {
-            void mongoose.disconnect().finally(() => process.exit(0));
+    try {
+        await connectDB();
+        httpServer.listen(port, () => {
+            console.log("-----------------------------------------");
+            console.log(`Server running at http://localhost:${port}`);
+            console.log(`Frontend: ${clientUrl}`);
+            console.log("MongoDB connected");
+            console.log("Session storage: MongoDB");
+            console.log("Socket.IO ready");
+            console.log("-----------------------------------------");
         });
-    };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
+    }
+    catch (error) {
+        console.error("[Server] Startup failed:", error);
+        process.exit(1);
+    }
 }
-startServer().catch((error) => {
-    console.error("Failed to start server:", error);
-    process.exit(1);
-});
+// Local development startup.
+void startServer();
+export default app;
 //# sourceMappingURL=server.js.map

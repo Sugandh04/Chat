@@ -8,8 +8,8 @@ import express, {
 import cors from "cors";
 import helmet from "helmet";
 import session from "express-session";
+import MongoStore from "connect-mongo";
 import { Server as SocketIOServer } from "socket.io";
-import mongoose from "mongoose";
 
 import { connectDB, isMongoDBConnected } from "./config/db.js";
 import authRoutes from "./routes/auth.js";
@@ -20,16 +20,22 @@ import { setupChatSockets } from "./sockets/chatSocket.js";
 const app = express();
 const httpServer = http.createServer(app);
 
-const isProduction = process.env.NODE_ENV === "production";
 const port = Number(process.env.PORT ?? 5000);
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
-const sessionSecret = process.env.SESSION_SECRET || "default_development_session_secret_32_chars_long";
 
-if (isProduction) {
-  app.set("trust proxy", 1);
+const sessionSecret = process.env.SESSION_SECRET;
+const mongoUri = process.env.MONGODB_URI;
+
+if (!sessionSecret) {
+  throw new Error("SESSION_SECRET is missing from environment variables.");
+}
+
+if (!mongoUri) {
+  throw new Error("MONGODB_URI is missing from environment variables.");
 }
 
 app.disable("x-powered-by");
+
 app.use(
   helmet({
     contentSecurityPolicy: false,
@@ -39,69 +45,74 @@ app.use(
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl) or matching clientUrl / localhost
-      if (!origin || origin === clientUrl || origin.startsWith("http://localhost:")) {
-        callback(null, true);
-      } else {
-        callback(null, true);
-      }
-    },
+    origin: [clientUrl, "http://localhost:5173"],
     credentials: true,
   })
 );
 
 app.use(express.json({ limit: "2mb" }));
 
-// Session handling with in-memory store for instant zero-dependency execution
-app.use(
-  session({
-    name: "connect.sid",
-    secret: sessionSecret,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 7,
-      path: "/",
-    },
-  })
-);
+// Shared session configuration for Express and Socket.IO.
+const sessionMiddleware = session({
+  name: "connect.sid",
+  secret: sessionSecret,
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: mongoUri,
+    collectionName: "sessions",
+    ttl: 60 * 60 * 24 * 7,
+  }),
+  cookie: {
+    httpOnly: true,
+    secure: false, // Local development over HTTP.
+    sameSite: "lax",
+    maxAge: 1000 * 60 * 60 * 24 * 7,
+    path: "/",
+  },
+});
 
-// Setup Socket.IO
+app.use(sessionMiddleware);
+
+// Socket.IO configuration.
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: [clientUrl, "http://localhost:5173", "http://127.0.0.1:5173"],
+    origin: [clientUrl, "http://localhost:5173"],
     credentials: true,
     methods: ["GET", "POST"],
   },
 });
 
+// Share Express sessions with Socket.IO connections.
+io.engine.use(sessionMiddleware);
+
 setupChatSockets(io);
 
-// Health check endpoint
+// Health check.
 app.get("/api/health", (_req: Request, res: Response) => {
   res.status(200).json({
     status: "ok",
-    database: isMongoDBConnected ? "mongodb-connected" : "local-storage-active",
+    database: isMongoDBConnected
+      ? "mongodb-connected"
+      : "disconnected",
     sockets: io.engine.clientsCount,
     timestamp: new Date().toISOString(),
   });
 });
 
-// Mount API routes
+// API routes.
 app.use("/api/auth", authRoutes);
 app.use("/api/invites", inviteRoutes);
 app.use("/api/chats", chatRoutes);
 
-// 404 handler
+// 404 handler.
 app.use((_req: Request, res: Response) => {
-  res.status(404).json({ message: "Route not found" });
+  res.status(404).json({
+    message: "Route not found",
+  });
 });
 
-// Error handler
+// Global error handler.
 app.use(
   (
     error: unknown,
@@ -109,7 +120,7 @@ app.use(
     res: Response,
     _next: NextFunction
   ) => {
-    console.error("Request failed:", error);
+    console.error("[Server] Request failed:", error);
 
     if (res.headersSent) return;
 
@@ -119,35 +130,27 @@ app.use(
   }
 );
 
+// Start server only after MongoDB connects.
 async function startServer(): Promise<void> {
-  // Start HTTP and WebSocket server immediately so app is always responsive
-  httpServer.listen(port, () => {
-    console.log(`\n=========================================`);
-    console.log(`🚀 PulseChat Server running at http://localhost:${port}`);
-    console.log(`🔌 WebSockets active & listening`);
-    console.log(`🌐 Client expected at ${clientUrl}`);
-    console.log(`=========================================\n`);
-  });
+  try {
+    await connectDB();
 
-  // Connect to DB asynchronously in background
-  void connectDB();
-
-  let shuttingDown = false;
-  const shutdown = (): void => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-
-    console.log("Shutting down server...");
-    httpServer.close(() => {
-      void mongoose.disconnect().finally(() => process.exit(0));
+    httpServer.listen(port, () => {
+      console.log("-----------------------------------------");
+      console.log(`Server running at http://localhost:${port}`);
+      console.log(`Frontend: ${clientUrl}`);
+      console.log("MongoDB connected");
+      console.log("Session storage: MongoDB");
+      console.log("Socket.IO ready");
+      console.log("-----------------------------------------");
     });
-  };
-
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  } catch (error) {
+    console.error("[Server] Startup failed:", error);
+    process.exit(1);
+  }
 }
 
-startServer().catch((error: unknown) => {
-  console.error("Failed to start server:", error);
-  process.exit(1);
-});
+// Local development startup.
+void startServer();
+
+export default app;

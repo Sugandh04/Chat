@@ -1,192 +1,467 @@
-import { Router, type Request, type Response } from "express";
-import { storage } from "../config/storage.js";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import mongoose, { Types } from "mongoose";
+
+import { User } from "../models/User.js";
+import { Conversation } from "../models/Conversation.js";
+import { Message } from "../models/Message.js";
 import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
-// Apply non-blocking auth middleware
 router.use(requireAuth);
 
-function getCurrentUser(req: Request) {
-  const userId = req.currentUserId || req.session?.userId || "user-sugan";
-  const user = storage.getUserById(userId) || {
-    id: userId,
-    displayName: req.currentUserName || "User",
-    avatar: "👤",
-    status: "online" as const,
-    lastSeen: new Date().toISOString(),
-  };
-  return user;
+// Get authenticated user's MongoDB ID.
+function getUserId(req: Request): Types.ObjectId {
+  return new Types.ObjectId(req.currentUserId!);
+}
+
+// Validate MongoDB ObjectId.
+function isValidId(id: unknown): id is string {
+  return typeof id === "string" && /^[a-f\d]{24}$/i.test(id);
 }
 
 // ==========================================
-// CHANNELS
-// ==========================================
-
-// GET /api/chats/channels
-router.get("/channels", (_req: Request, res: Response) => {
-  const channels = storage.getChannels();
-  res.json({ channels });
-});
-
-// POST /api/chats/channels
-router.post("/channels", (req: Request, res: Response) => {
-  const { name, description } = req.body ?? {};
-
-  if (!name || typeof name !== "string" || !name.trim()) {
-    res.status(400).json({ message: "Channel name is required" });
-    return;
-  }
-
-  const channel = storage.createChannel(name, description);
-  res.status(201).json({ channel });
-});
-
-// GET /api/chats/channels/:channelId/messages
-router.get("/channels/:channelId/messages", (req: Request, res: Response) => {
-  const channelId = req.params.channelId;
-  const limit = Math.min(Number(req.query.limit ?? 100), 100);
-  const before = req.query.before ? String(req.query.before) : undefined;
-
-  const result = storage.getMessages(channelId, limit, before);
-  res.json(result);
-});
-
-// POST /api/chats/channels/:channelId/messages
-router.post("/channels/:channelId/messages", (req: Request, res: Response) => {
-  const channelId = req.params.channelId;
-  const user = getCurrentUser(req);
-  const { text, mediaUrl } = req.body ?? {};
-
-  if (!text || typeof text !== "string" || !text.trim()) {
-    res.status(400).json({ message: "Message cannot be empty" });
-    return;
-  }
-
-  const message = storage.addMessage({
-    targetId: channelId,
-    senderId: user.id,
-    senderName: user.displayName,
-    senderAvatar: user.avatar,
-    text: text.trim(),
-    mediaUrl: typeof mediaUrl === "string" ? mediaUrl : undefined,
-  });
-
-  res.status(201).json({ message });
-});
-
-// ==========================================
-// USERS & DIRECT CONVERSATIONS
+// USERS
 // ==========================================
 
 // GET /api/chats/users
-router.get("/users", (req: Request, res: Response) => {
-  const user = getCurrentUser(req);
-  const users = storage.getUsers().filter((u) => u.id !== user.id);
-  res.json({ users });
-});
+router.get(
+  "/users",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = getUserId(req);
+
+      const users = await User.find({
+        _id: { $ne: userId },
+      })
+        .select("_id displayName email")
+        .sort({ displayName: 1 })
+        .lean();
+
+      res.json({
+        users: users.map((user) => ({
+          id: user._id.toString(),
+          displayName: user.displayName,
+          email: user.email,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ==========================================
+// CONVERSATIONS
+// ==========================================
 
 // GET /api/chats/conversations
-router.get("/conversations", (req: Request, res: Response) => {
-  const user = getCurrentUser(req);
-  const conversations = storage.getConversations(user.id);
-  res.json({ conversations });
-});
+router.get(
+  "/conversations",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = getUserId(req);
+
+      const conversations = await Conversation.find({
+        participants: userId,
+      })
+        .sort({ lastMessageAt: -1 })
+        .lean();
+
+      const otherUserIds = conversations
+        .flatMap((conversation) => conversation.participants)
+        .filter((id) => !id.equals(userId));
+
+      const otherUsers = await User.find({
+        _id: { $in: otherUserIds },
+      })
+        .select("_id displayName email")
+        .lean();
+
+      const userMap = new Map(
+        otherUsers.map((user) => [user._id.toString(), user])
+      );
+
+      res.json({
+        conversations: conversations.map((conversation) => {
+          const otherParticipantId = conversation.participants.find(
+            (id) => !id.equals(userId)
+          );
+
+          const otherParticipant = otherParticipantId
+            ? userMap.get(otherParticipantId.toString())
+            : undefined;
+
+          return {
+            id: conversation._id.toString(),
+            participant: otherParticipant
+              ? {
+                id: otherParticipant._id.toString(),
+                displayName: otherParticipant.displayName,
+                email: otherParticipant.email,
+              }
+              : null,
+            lastMessageAt: conversation.lastMessageAt,
+          };
+        }),
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 // POST /api/chats/conversations
-router.post("/conversations", (req: Request, res: Response) => {
-  const user = getCurrentUser(req);
-  const { participantId } = req.body ?? {};
+router.post(
+  "/conversations",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = getUserId(req);
+      const { participantId } = req.body ?? {};
 
-  if (!participantId || typeof participantId !== "string") {
-    res.status(400).json({ message: "Participant ID is required" });
-    return;
+      if (!isValidId(participantId)) {
+        res.status(400).json({
+          message: "A valid participant ID is required.",
+        });
+        return;
+      }
+
+      const otherUserId = new Types.ObjectId(participantId);
+
+      if (userId.equals(otherUserId)) {
+        res.status(400).json({
+          message: "You cannot start a conversation with yourself.",
+        });
+        return;
+      }
+
+      const otherUser = await User.findById(otherUserId)
+        .select("_id displayName email")
+        .lean();
+
+      if (!otherUser) {
+        res.status(404).json({
+          message: "Participant not found.",
+        });
+        return;
+      }
+
+      // Sort IDs to ensure A-B and B-A produce the same key.
+      const participantIds = [
+        userId.toString(),
+        otherUserId.toString(),
+      ].sort();
+
+      const participantKey = participantIds.join(":");
+
+      let conversation;
+
+      try {
+        conversation = await Conversation.findOneAndUpdate(
+          { participantKey },
+          {
+            $setOnInsert: {
+              participants: participantIds.map(
+                (id) => new Types.ObjectId(id)
+              ),
+              participantKey,
+              lastMessageAt: new Date(),
+            },
+          },
+          {
+            new: true,
+            upsert: true,
+            runValidators: true,
+            setDefaultsOnInsert: true,
+          }
+        );
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === 11000
+        ) {
+          conversation = await Conversation.findOne({
+            participantKey,
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      if (!conversation) {
+        res.status(500).json({
+          message: "Unable to create conversation.",
+        });
+        return;
+      }
+
+      res.status(200).json({
+        conversation: {
+          id: conversation._id.toString(),
+          participant: {
+            id: otherUser._id.toString(),
+            displayName: otherUser.displayName,
+            email: otherUser.email,
+          },
+          lastMessageAt: conversation.lastMessageAt,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
   }
+);
 
-  const otherUser = storage.getUserById(participantId);
-  if (!otherUser) {
-    res.status(404).json({ message: "Participant not found" });
-    return;
-  }
-
-  const conversationId = `dm:${[user.id, participantId].sort().join(":")}`;
-  res.status(200).json({
-    conversation: {
-      id: conversationId,
-      participant: otherUser,
-      lastMessageAt: new Date().toISOString(),
-    },
-  });
-});
+// ==========================================
+// MESSAGES
+// ==========================================
 
 // GET /api/chats/conversations/:conversationId/messages
-router.get("/conversations/:conversationId/messages", (req: Request, res: Response) => {
-  const conversationId = req.params.conversationId;
-  const limit = Math.min(Number(req.query.limit ?? 100), 100);
-  const before = req.query.before ? String(req.query.before) : undefined;
+router.get(
+  "/conversations/:conversationId/messages",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = getUserId(req);
+      const conversationId = req.params.conversationId;
 
-  const result = storage.getMessages(conversationId, limit, before);
-  res.json(result);
-});
+      if (!isValidId(conversationId)) {
+        res.status(400).json({
+          message: "Invalid conversation ID.",
+        });
+        return;
+      }
+
+      const conversation = await Conversation.findOne({
+        _id: conversationId,
+        participants: userId,
+      });
+
+      if (!conversation) {
+        res.status(404).json({
+          message: "Conversation not found.",
+        });
+        return;
+      }
+
+      const rawLimit = Number(req.query.limit ?? 50);
+
+      const limit = Number.isFinite(rawLimit)
+        ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
+        : 50;
+
+      const before = req.query.before
+        ? String(req.query.before)
+        : undefined;
+
+      const messageFilter: Record<string, unknown> = {
+        conversationId: conversation._id,
+      };
+
+      if (before) {
+        if (!isValidId(before)) {
+          res.status(400).json({
+            message: "Invalid pagination cursor.",
+          });
+          return;
+        }
+
+        const cursor = await Message.findOne({
+          _id: before,
+          conversationId: conversation._id,
+        }).select("_id createdAt");
+
+        if (!cursor) {
+          res.status(400).json({
+            message: "Invalid pagination cursor.",
+          });
+          return;
+        }
+
+        messageFilter.$or = [
+          { createdAt: { $lt: cursor.createdAt } },
+          {
+            createdAt: cursor.createdAt,
+            _id: { $lt: cursor._id },
+          },
+        ];
+      }
+
+      const results = await Message.find(messageFilter)
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(limit + 1)
+        .lean();
+
+      const hasMore = results.length > limit;
+      const messages = results.slice(0, limit).reverse();
+
+      // Fetch sender details separately to avoid populated-document
+      // TypeScript inference problems.
+      const senderIds = [
+        ...new Set(messages.map((message) => message.senderId.toString())),
+      ];
+
+      const senders = await User.find({
+        _id: { $in: senderIds },
+      })
+        .select("_id displayName")
+        .lean();
+
+      const senderMap = new Map(
+        senders.map((sender) => [sender._id.toString(), sender])
+      );
+
+      res.json({
+        messages: messages.map((message) => {
+          const sender = senderMap.get(message.senderId.toString());
+
+          return {
+            id: message._id.toString(),
+            conversationId: message.conversationId.toString(),
+            sender: sender
+              ? {
+                id: sender._id.toString(),
+                displayName: sender.displayName,
+              }
+              : null,
+            text: message.text,
+            createdAt: message.createdAt,
+          };
+        }),
+        hasMore,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 // POST /api/chats/conversations/:conversationId/messages
-router.post("/conversations/:conversationId/messages", (req: Request, res: Response) => {
-  const conversationId = req.params.conversationId;
-  const user = getCurrentUser(req);
-  const { text, mediaUrl } = req.body ?? {};
+router.post(
+  "/conversations/:conversationId/messages",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = getUserId(req);
+      const conversationId = req.params.conversationId;
+      const { text } = req.body ?? {};
 
-  if (!text || typeof text !== "string" || !text.trim()) {
-    res.status(400).json({ message: "Message cannot be empty" });
-    return;
+      if (!isValidId(conversationId)) {
+        res.status(400).json({
+          message: "Invalid conversation ID.",
+        });
+        return;
+      }
+
+      if (typeof text !== "string" || !text.trim()) {
+        res.status(400).json({
+          message: "Message cannot be empty.",
+        });
+        return;
+      }
+
+      const cleanText = text.trim();
+
+      if (cleanText.length > 4000) {
+        res.status(400).json({
+          message: "Message cannot exceed 4000 characters.",
+        });
+        return;
+      }
+
+      const conversation = await Conversation.findOne({
+        _id: conversationId,
+        participants: userId,
+      });
+
+      if (!conversation) {
+        res.status(404).json({
+          message: "Conversation not found.",
+        });
+        return;
+      }
+
+      const message = await Message.create({
+        conversationId: conversation._id,
+        senderId: userId,
+        text: cleanText,
+      });
+
+      conversation.lastMessageAt = message.createdAt;
+      await conversation.save();
+
+      res.status(201).json({
+        message: {
+          id: message._id.toString(),
+          conversationId: message.conversationId.toString(),
+          sender: {
+            id: userId.toString(),
+            displayName: req.currentUserName,
+          },
+          text: message.text,
+          createdAt: message.createdAt,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
   }
-
-  const message = storage.addMessage({
-    targetId: conversationId,
-    senderId: user.id,
-    senderName: user.displayName,
-    senderAvatar: user.avatar,
-    text: text.trim(),
-    mediaUrl: typeof mediaUrl === "string" ? mediaUrl : undefined,
-  });
-
-  res.status(201).json({ message });
-});
+);
 
 // ==========================================
-// REACTIONS & MESSAGE ACTIONS
+// DELETE MESSAGE
 // ==========================================
-
-// POST /api/chats/messages/:messageId/reaction
-router.post("/messages/:messageId/reaction", (req: Request, res: Response) => {
-  const messageId = req.params.messageId;
-  const user = getCurrentUser(req);
-  const { emoji } = req.body ?? {};
-
-  if (!emoji || typeof emoji !== "string") {
-    res.status(400).json({ message: "Emoji is required" });
-    return;
-  }
-
-  const updated = storage.toggleReaction(messageId, emoji, user.id);
-  if (!updated) {
-    res.status(404).json({ message: "Message not found" });
-    return;
-  }
-
-  res.json({ message: updated });
-});
 
 // DELETE /api/chats/messages/:messageId
-router.delete("/messages/:messageId", (req: Request, res: Response) => {
-  const messageId = req.params.messageId;
-  const deleted = storage.deleteMessage(messageId);
+router.delete(
+  "/messages/:messageId",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = getUserId(req);
+      const messageId = req.params.messageId;
 
-  if (!deleted) {
-    res.status(404).json({ message: "Message not found" });
-    return;
+      if (!isValidId(messageId)) {
+        res.status(400).json({
+          message: "Invalid message ID.",
+        });
+        return;
+      }
+
+      const message = await Message.findOneAndDelete({
+        _id: messageId,
+        senderId: userId,
+      });
+
+      if (!message) {
+        res.status(404).json({
+          message: "Message not found or you cannot delete it.",
+        });
+        return;
+      }
+
+      // Refresh the conversation's latest message timestamp.
+      const latestMessage = await Message.findOne({
+        conversationId: message.conversationId,
+      })
+        .sort({ createdAt: -1, _id: -1 })
+        .select("createdAt");
+
+      await Conversation.updateOne(
+        { _id: message.conversationId },
+        {
+          $set: {
+            lastMessageAt: latestMessage?.createdAt ?? message.createdAt,
+          },
+        }
+      );
+
+      res.json({
+        message: "Message deleted successfully.",
+      });
+    } catch (error) {
+      next(error);
+    }
   }
-
-  res.json({ message: "Message deleted" });
-});
+);
 
 export default router;
