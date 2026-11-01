@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chat App — WhatsApp & Community Modes</title>
+  <meta name="description"
+    content="Dual-mode messaging application featuring WhatsApp UI and PulseChat UI with instant toggling." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Segoe+UI:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+  <!-- ============================================================
+       TOP UI MODE FLAG SWITCHER (Controls which UI is shown)
+       ============================================================ -->
+
+  <!-- ============================================================
+       UI 1: WHATSAPP-STYLE INTERFACE (Active when Flag is ON)
+       - Header then Chats and Add New Option
+       - No bots, no channels, no live typing clutter
+       - Classic WhatsApp Web dark aesthetics & green accents
+       ============================================================ -->
+  <div class="whatsapp-layout" id="whatsappView">
+
+    <!-- LEFT SIDEBAR: HEADER + SEARCH + CHATS LIST -->
+    <aside class="wa-sidebar">
+      <!-- WhatsApp Header -->
+      <header class="wa-header">
+        <div class="wa-user-avatar" id="waCurrentUserAvatar" title="My Profile (Click to change)">IS</div>
+        <div class="wa-header-title">People</div>
+        <div class="wa-header-actions">
+          <!-- + Add New Chat Button -->
+          <button class="wa-header-btn" id="waNewChatBtn" title="New Chat (+ Add New)">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path>
+            </svg>
+            <span class="add-new-text">Add New</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Search Bar -->
+      <div class="wa-search-wrap">
+        <div class="wa-search-box">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" class="wa-search-svg">
+            <path
+              d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z">
+            </path>
+          </svg>
+          <input type="text" id="waSearchInput" placeholder="Search or start new chat" />
+          <button class="wa-search-clear hidden" id="waSearchClear">✕</button>
+        </div>
+      </div>
+
+      <!-- Quick Filter Pills -->
+      <div class="wa-filter-tabs">
+        <button class="wa-filter-tab active" data-filter="all">All</button>
+        <button class="wa-filter-tab" data-filter="unread">Unread</button>
+        <button class="wa-filter-tab" data-filter="contacts">Contacts</button>
+      </div>
+
+      <!-- WhatsApp Chats List -->
+      <div class="wa-chats-list" id="waChatsList">
+        <!-- Dynamically populated conversations -->
+      </div>
+
+      <!-- Floating Action Button (+ Add New Chat) -->
+      <button class="wa-fab" id="waFabNewChat" title="Add New Chat">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+          <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path>
+        </svg>
+      </button>
+    </aside>
+
+    <!-- RIGHT PANE: ACTIVE CHAT VIEW -->
+    <main class="wa-chat-pane" id="waChatPane">
+
+      <!-- Empty State (No Chat Selected) -->
+      <div class="wa-empty-state" id="waEmptyState">
+        <div class="wa-empty-circle">
+          <svg viewBox="0 0 24 24" width="60" height="60" fill="#00a884">
+            <path
+              d="M12 2C6.48 2 2 6.48 2 12c0 1.82.49 3.53 1.35 5L2 22l5.18-1.32C8.61 21.53 10.26 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm0 18c-1.54 0-2.98-.44-4.21-1.19l-.3-.18-3.12.8 0.83-3.03-.2-.31C4.38 14.89 3.9 13.48 3.9 12 3.9 7.53 7.53 3.9 12 3.9c4.47 0 8.1 3.63 8.1 8.1 0 4.47-3.63 8.1-8.1 8.1z">
+            </path>
+          </svg>
+        </div>
+        <h2 class="wa-empty-title">Web</h2>
+        <p class="wa-empty-desc">Send and receive messages seamlessly without channels or bot clutter. Select a
+          conversation on the left or tap <strong>+ Add New</strong> to begin.</p>
+        <div class="wa-empty-lock">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+            <path
+              d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z">
+            </path>
+          </svg>
+          <span>End-to-end encrypted</span>
+        </div>
+      </div>
+
+      <!-- Active Conversation Screen -->
+      <div class="wa-active-chat hidden" id="waActiveChat">
+        <!-- Contact Top Header -->
+        <header class="wa-contact-header">
+          <button class="wa-mobile-back" id="waMobileBackBtn" title="Back to chats">←</button>
+          <div class="wa-contact-avatar" id="waContactAvatar">👤</div>
+          <div class="wa-contact-details">
+            <div class="wa-contact-name" id="waContactName">Contact Name</div>
+            <div class="wa-contact-status" id="waContactStatus">online</div>
+          </div>
+          <div class="wa-contact-actions">
+            <button class="wa-header-icon-btn" id="waContactSearchBtn" title="Search messages">
+              <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor">
+                <path
+                  d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z">
+                </path>
+              </svg>
+            </button>
+            <button class="wa-header-icon-btn" id="waClearCurrentChatBtn" title="Clear chat messages">
+              <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor">
+                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"></path>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <!-- Message Bubbles Scroll Area -->
+        <div class="wa-chat-body" id="waChatBody">
+          <div class="wa-encryption-tag">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+              <path
+                d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z">
+              </path>
+            </svg>
+            <span>Messages are end-to-end encrypted. No one outside of this chat can read them.</span>
+          </div>
+          <div class="wa-bubbles-stream" id="waBubblesStream">
+            <!-- Dynamic WhatsApp Bubbles -->
+          </div>
+        </div>
+
+        <!-- WhatsApp Composer Footer -->
+        <footer class="wa-footer">
+          <div class="wa-composer-row">
+            <button type="button" class="wa-btn-icon" id="waEmojiPickerBtn" title="Emoji">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                <path
+                  d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z">
+                </path>
+              </svg>
+            </button>
+            <form class="wa-composer-form" id="waComposerForm">
+              <input type="text" id="waMessageInput" class="wa-composer-input" placeholder="Type a message"
+                autocomplete="off" required />
+              <button type="submit" class="wa-send-circle" id="waSendBtn" title="Send (Enter)">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+                </svg>
+              </button>
+            </form>
+          </div>
+        </footer>
+      </div>
+    </main>
+  </div>
+
+  <!-- WHATSAPP "ADD NEW CHAT" MODAL -->
+  <div class="wa-modal-backdrop hidden" id="waNewChatModal">
+    <div class="wa-modal-box">
+      <div class="wa-modal-header">
+        <h3 class="wa-modal-title">New Chat</h3>
+        <button class="wa-modal-close" id="waCloseNewChatModal">✕</button>
+      </div>
+      <form id="waNewChatForm" class="wa-modal-form">
+        <div class="wa-input-group">
+          <label>Contact Name</label>
+          <input type="text" id="waNewContactName" class="wa-form-input" placeholder="e.g. Alex, Emma, David"
+            maxlength="30" required />
+        </div>
+        <div class="wa-input-group">
+          <label>Pick Contact Avatar</label>
+          <div class="wa-avatar-grid" id="waAvatarGrid">
+            <button type="button" class="wa-avatar-cell selected" data-avatar="👤">👤</button>
+            <button type="button" class="wa-avatar-cell" data-avatar="👩">👩</button>
+            <button type="button" class="wa-avatar-cell" data-avatar="👨">👨</button>
+            <button type="button" class="wa-avatar-cell" data-avatar="🧑‍💻">🧑‍💻</button>
+            <button type="button" class="wa-avatar-cell" data-avatar="⚡">⚡</button>
+            <button type="button" class="wa-avatar-cell" data-avatar="🎨">🎨</button>
+            <button type="button" class="wa-avatar-cell" data-avatar="🚀">🚀</button>
+            <button type="button" class="wa-avatar-cell" data-avatar="✨">✨</button>
+          </div>
+        </div>
+        <div class="wa-modal-footer">
+          <button type="button" class="wa-btn-secondary" id="waCancelNewChat">Cancel</button>
+          <button type="submit" class="wa-btn-primary">Start Chat</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ============================================================
+       UI 2: PULSECHAT INTERFACE (Active when Flag is OFF)
+       - The existing community & channels UI preserved 100%
+       ============================================================ -->
+  <div class="app-layout" id="pulsechatView">
+
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <!-- App Header -->
+      <div class="sidebar-brand">
+        <div class="brand-logo">
+          <div class="brand-icon-glow"></div>
+          <svg class="brand-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            <path d="M8 10h.01"></path>
+            <path d="M12 10h.01"></path>
+            <path d="M16 10h.01"></path>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1 class="brand-name">PulseChat</h1>
+          <div class="connection-badge" id="connectionBadge">
+            <span class="status-dot pulsing"></span>
+            <span class="status-label" id="connectionLabel">Connecting...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Current User Profile Card -->
+      <div class="user-profile-card" id="userProfileCard" title="Click to customize profile">
+        <div class="user-avatar-wrap">
+          <span class="user-avatar" id="currentUserAvatar">⚡</span>
+          <span class="avatar-status-dot online"></span>
+        </div>
+        <div class="user-profile-meta">
+          <div class="user-display-name" id="currentUserName">Sugan</div>
+          <div class="user-tag" id="currentUserTag">Active now</div>
+        </div>
+        <button class="icon-btn-ghost" id="editProfileBtn" title="Edit Profile & Avatar">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2">
+            <path d="M12 20h9"></path>
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Scrollable Navigation Lists -->
+      <div class="sidebar-scrollable">
+
+        <!-- Channels Section -->
+        <div class="nav-section">
+          <div class="section-header">
+            <span class="section-title">CHANNELS</span>
+            <button class="add-btn" id="newChannelBtn" title="Create New Channel">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2.5">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+          </div>
+          <ul class="nav-list" id="channelsList">
+            <!-- Dynamically populated channels -->
+          </ul>
+        </div>
+
+        <!-- Direct Messages Section -->
+        <div class="nav-section">
+          <div class="section-header">
+            <span class="section-title">DIRECT MESSAGES</span>
+          </div>
+          <ul class="nav-list" id="dmList">
+            <!-- Dynamically populated users -->
+          </ul>
+        </div>
+
+      </div>
+
+      <!-- Sidebar Controls Footer -->
+      <div class="sidebar-footer">
+        <button class="footer-btn" id="soundToggleBtn" title="Toggle Sound Notifications">
+          <span id="soundIcon">🔊</span>
+          <span class="footer-label" id="soundLabel">Sound On</span>
+        </button>
+        <button class="footer-btn" id="switchUserQuickBtn" title="Change Nickname">
+          <span>✨</span>
+          <span class="footer-label">Switch Name</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- MAIN CHAT AREA -->
+    <main class="chat-main" id="chatMain">
+
+      <!-- Top Chat Header -->
+      <header class="chat-topbar">
+        <div class="target-info">
+          <button class="mobile-toggle-btn" id="mobileMenuBtn" aria-label="Toggle Navigation">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <div class="target-symbol" id="targetSymbol">#</div>
+          <div>
+            <h2 class="target-title" id="targetTitle">general</h2>
+            <p class="target-desc" id="targetDesc">Welcome to PulseChat! Open discussion for everyone.</p>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <!-- In-chat search -->
+          <div class="search-box">
+            <svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" fill="none"
+              stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" id="searchInput" placeholder="Search in conversation..." />
+            <button class="clear-search-btn hidden" id="clearSearchBtn">✕</button>
+          </div>
+
+          <!-- Members Pill Toggle -->
+          <button class="topbar-pill" id="toggleMembersPanelBtn" title="Toggle Member Panel">
+            <span class="members-icon">👥</span>
+            <span id="onlineCountLabel">3 online</span>
+          </button>
+
+          <!-- Clear messages button -->
+          <button class="icon-btn" id="clearChatBtn" title="Clear chat view">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Message History Container -->
+      <div class="messages-container" id="messagesContainer">
+        <!-- Room Welcome Card -->
+        <div class="room-welcome" id="roomWelcome">
+          <div class="welcome-icon-box">💬</div>
+          <h3 class="welcome-heading" id="welcomeHeading">Welcome to #general!</h3>
+          <p class="welcome-subtext" id="welcomeSubtext">This is the start of the #general channel. Start the
+            conversation!</p>
+        </div>
+
+        <!-- Dynamic Message Cards -->
+        <div class="messages-stream" id="messagesStream">
+          <!-- Dynamically populated messages -->
+        </div>
+
+        <!-- Typing Indicator -->
+        <div class="typing-indicator hidden" id="typingIndicator">
+          <div class="typing-bubble">
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+          </div>
+          <span class="typing-text" id="typingText">Someone is typing...</span>
+        </div>
+      </div>
+
+      <!-- Quick Action Chips -->
+      <div class="quick-prompts" id="quickPrompts">
+        <button class="prompt-chip" data-prompt="Hey everyone! 👋">👋 Say Hello</button>
+        <button class="prompt-chip" data-prompt="@Spark AI What features are active? 🤖">🤖 Ask Spark AI</button>
+        <button class="prompt-chip" data-prompt="This real-time chat looks amazing! 🔥">🔥 Send Fire</button>
+        <button class="prompt-chip" data-prompt="Let's build something awesome today! 🚀">🚀 Build</button>
+      </div>
+
+      <!-- Message Input Composer Bar -->
+      <footer class="chat-composer">
+        <!-- Emoji Popover Tray -->
+        <div class="emoji-tray hidden" id="emojiTray">
+          <div class="emoji-tray-header">
+            <span>Quick Reactions & Emojis</span>
+            <button class="tray-close-btn" id="closeEmojiTrayBtn">✕</button>
+          </div>
+          <div class="emoji-grid" id="emojiGrid"></div>
+        </div>
+
+        <!-- Image Attachment Popup -->
+        <div class="attach-tray hidden" id="attachTray">
+          <div class="attach-header">
+            <span>Insert Image URL</span>
+            <button class="tray-close-btn" id="closeAttachTrayBtn">✕</button>
+          </div>
+          <div class="attach-inputs">
+            <input type="url" id="mediaUrlInput" placeholder="https://images.unsplash.com/photo-..."
+              class="attach-input" />
+            <div class="preset-images">
+              <span class="preset-label">Sample images:</span>
+              <button type="button" class="preset-img-btn"
+                data-url="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop">Abstract
+                Glow</button>
+              <button type="button" class="preset-img-btn"
+                data-url="https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=600&auto=format&fit=crop">Neon
+                Art</button>
+              <button type="button" class="preset-img-btn"
+                data-url="https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&auto=format&fit=crop">Tech
+                Setup</button>
+            </div>
+            <button type="button" class="btn-attach-apply" id="applyAttachBtn">Attach Image</button>
+          </div>
+        </div>
+
+        <!-- Composer Form -->
+        <form class="composer-form" id="composerForm">
+          <div class="composer-actions-left">
+            <button type="button" class="composer-btn" id="emojiBtn" title="Insert Emoji">
+              <span class="composer-icon">😊</span>
+            </button>
+            <button type="button" class="composer-btn" id="attachBtn" title="Attach Image">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
+            </button>
+          </div>
+
+          <div class="composer-input-wrap">
+            <div class="media-attached-preview hidden" id="mediaPreviewChip">
+              <span>📷 Image attached</span>
+              <button type="button" class="remove-preview-btn" id="removeMediaPreviewBtn">✕</button>
+            </div>
+            <textarea id="messageInput" class="composer-textarea"
+              placeholder="Message #general... (Press Enter to send, Shift+Enter for new line)" rows="1"
+              required></textarea>
+          </div>
+
+          <button type="submit" class="send-btn" id="sendBtn" title="Send message (Enter)">
+            <svg class="send-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+              stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </form>
+      </footer>
+    </main>
+
+    <!-- RIGHT PANEL: MEMBERS & INFO -->
+    <aside class="right-panel" id="rightPanel">
+      <div class="panel-header">
+        <h3 class="panel-title">Room Details</h3>
+        <button class="icon-btn-ghost" id="closeRightPanelBtn" title="Close Panel">✕</button>
+      </div>
+
+      <div class="panel-content">
+        <div class="panel-card">
+          <div class="panel-card-title">About</div>
+          <p class="panel-card-desc" id="panelTargetDesc">Public chat channel for real-time collaboration and open
+            discussion.</p>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-card-title">
+            <span>Online Members</span>
+            <span class="member-count-badge" id="panelMemberCount">3</span>
+          </div>
+          <ul class="members-list" id="onlineMembersList"></ul>
+        </div>
+
+        <div class="panel-card features-card">
+          <div class="panel-card-title">Active Capabilities</div>
+          <ul class="feature-checklist">
+            <li>⚡ <strong>Zero Auth:</strong> Instant guest / custom profile access</li>
+            <li>🔌 <strong>Socket.io:</strong> Real-time broadcast engine</li>
+            <li>💬 <strong>Channels & DMs:</strong> Public and private rooms</li>
+            <li>✨ <strong>Reactions:</strong> 1-click emoji counter updates</li>
+            <li>✍️ <strong>Live Typing:</strong> Smooth status indicators</li>
+            <li>💾 <strong>Local Persistence:</strong> Survives restarts</li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- MODAL: PROFILE & AVATAR SETTINGS -->
+  <div class="modal-overlay hidden" id="profileModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Customize Your Identity</h3>
+        <button class="modal-close-btn" id="closeProfileModalBtn">✕</button>
+      </div>
+      <form id="profileForm" class="modal-form">
+        <div class="form-group">
+          <label for="displayNameInput">Your Display Name</label>
+          <input type="text" id="displayNameInput" class="form-input" placeholder="e.g. Sugan, Alex, CyberFox"
+            maxlength="30" required />
+        </div>
+
+        <div class="form-group">
+          <label>Pick an Avatar</label>
+          <div class="avatar-picker-grid" id="avatarPickerGrid">
+            <button type="button" class="avatar-option selected" data-avatar="⚡">⚡</button>
+            <button type="button" class="avatar-option" data-avatar="🤖">🤖</button>
+            <button type="button" class="avatar-option" data-avatar="🎨">🎨</button>
+            <button type="button" class="avatar-option" data-avatar="🚀">🚀</button>
+            <button type="button" class="avatar-option" data-avatar="🦊">🦊</button>
+            <button type="button" class="avatar-option" data-avatar="🎮">🎮</button>
+            <button type="button" class="avatar-option" data-avatar="💎">💎</button>
+            <button type="button" class="avatar-option" data-avatar="🌟">🌟</button>
+            <button type="button" class="avatar-option" data-avatar="🐱">🐱</button>
+            <button type="button" class="avatar-option" data-avatar="🔥">🔥</button>
+            <button type="button" class="avatar-option" data-avatar="🦁">🦁</button>
+            <button type="button" class="avatar-option" data-avatar="☕">☕</button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" id="cancelProfileBtn">Cancel</button>
+          <button type="submit" class="btn-primary">Save & Chat</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: CREATE CHANNEL -->
+  <div class="modal-overlay hidden" id="channelModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Create New Channel</h3>
+        <button class="modal-close-btn" id="closeChannelModalBtn">✕</button>
+      </div>
+      <form id="channelForm" class="modal-form">
+        <div class="form-group">
+          <label for="newChannelNameInput">Channel Name</label>
+          <div class="channel-input-wrapper">
+            <span class="prefix">#</span>
+            <input type="text" id="newChannelNameInput" class="form-input with-prefix" placeholder="design-ideas"
+              maxlength="25" required />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="newChannelDescInput">Topic / Purpose (Optional)</label>
+          <input type="text" id="newChannelDescInput" class="form-input"
+            placeholder="Brainstorming and sharing UI concepts" maxlength="80" />
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" id="cancelChannelBtn">Cancel</button>
+          <button type="submit" class="btn-primary">Create Channel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: IMAGE PREVIEW LIGHTBOX -->
+  <div class="lightbox-overlay hidden" id="imageLightbox">
+    <div class="lightbox-content">
+      <button class="lightbox-close-btn" id="closeLightboxBtn">✕</button>
+      <img id="lightboxImg" src="" alt="Enlarged preview" />
+    </div>
+  </div>
+
+  <!-- Load Socket.io with dynamic host for network connection -->
+  <script>
+    const sHost = window.location.hostname || 'localhost';
+    document.write('<script src="http://' + sHost + ':5000/socket.io/socket.io.js"><\/script>');
+    if (typeof io === 'undefined') {
+      document.write('<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"><\/script>');
+    }
+  </script>
+  <script type="module" src="app.js"></script>
+</body>
+
+</html>

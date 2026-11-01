@@ -1,0 +1,164 @@
+{
+  "users": [
+    {
+      "id": "bot-spark",
+      "displayName": "Spark AI",
+      "avatar": "🤖",
+      "status": "online",
+      "lastSeen": "2026-10-31T17:10:21.052Z"
+    },
+    {
+      "id": "user-sugan",
+      "displayName": "Sugan",
+      "avatar": "⚡",
+      "status": "online",
+      "lastSeen": "2026-10-31T17:10:21.052Z"
+    },
+    {
+      "id": "user-alex",
+      "displayName": "Alex Rivera",
+      "avatar": "🎨",
+      "status": "online",
+      "lastSeen": "2026-10-31T17:10:21.052Z"
+    },
+    {
+      "id": "guest-1",
+      "displayName": "User-st-1",
+      "email": "guest-1@pulsechat.local",
+      "avatar": "👤",
+      "status": "online",
+      "lastSeen": "2026-10-31T17:42:17.021Z"
+    },
+    {
+      "id": "user-me799i",
+      "displayName": "Zenith",
+      "email": "user-me799i@pulsechat.local",
+      "avatar": "👤",
+      "status": "offline",
+      "lastSeen": "2026-11-01T06:14:57.560Z"
+    }
+  ],
+  "channels": [
+    {
+      "id": "general",
+      "name": "general",
+      "description": "Welcome to PulseChat! Open discussion for everyone.",
+      "createdAt": "2026-10-31T17:10:21.052Z",
+      "isDefault": true
+    },
+    {
+      "id": "tech-talk",
+      "name": "tech-talk",
+      "description": "Share code, discuss tech stacks, APIs, and frameworks.",
+      "createdAt": "2026-10-31T17:10:21.052Z",
+      "isDefault": true
+    },
+    {
+      "id": "random",
+      "name": "random",
+      "description": "Casual thoughts, memes, links, and fun off-topic chat.",
+      "createdAt": "2026-10-31T17:10:21.052Z",
+      "isDefault": true
+    },
+    {
+      "id": "announcements",
+      "name": "announcements",
+      "description": "Community updates, new releases, and broadcast news.",
+      "createdAt": "2026-10-31T17:10:21.052Z",
+      "isDefault": true
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg-init-1",
+      "targetId": "general",
+      "senderId": "bot-spark",
+      "senderName": "Spark AI",
+      "senderAvatar": "🤖",
+      "text": "✨ Welcome to PulseChat! Real-time messaging is fully active and ready to go.",
+      "reactions": {
+        "🔥": [
+          "user-sugan"
+        ],
+        "❤️": [
+          "user-alex"
+        ]
+      },
+      "createdAt": "2026-10-31T16:10:21.052Z"
+    },
+    {
+      "id": "msg-init-2",
+      "targetId": "general",
+      "senderId": "user-sugan",
+      "senderName": "Sugan",
+      "senderAvatar": "⚡",
+      "text": "Hey everyone! The authentication barrier is disabled so anyone can join and chat instantly! 🚀",
+      "reactions": {
+        "🎉": [
+          "bot-spark",
+          "user-alex"
+        ]
+      },
+      "createdAt": "2026-10-31T16:40:21.052Z"
+    },
+    {
+      "id": "msg-init-3",
+      "targetId": "general",
+      "senderId": "user-alex",
+      "senderName": "Alex Rivera",
+      "senderAvatar": "🎨",
+      "text": "Looks amazing! Real-time typing indicators, emoji reactions, channels, and rich messages all work seamlessly! 🙌",
+      "reactions": {
+        "👍": [
+          "user-sugan"
+        ]
+      },
+      "createdAt": "2026-10-31T16:55:21.052Z"
+    },
+    {
+      "id": "msg-init-4",
+      "targetId": "tech-talk",
+      "senderId": "user-sugan",
+      "senderName": "Sugan",
+      "senderAvatar": "⚡",
+      "text": "Node.js + Express + Socket.io is running like a charm. Ready to test live messaging!",
+      "reactions": {
+        "💻": [
+          "user-alex"
+        ]
+      },
+      "createdAt": "2026-10-31T16:50:21.052Z"
+    },
+    {
+      "id": "msg-1793468537023-9vrld",
+      "targetId": "general",
+      "senderId": "guest-1",
+      "senderName": "User-st-1",
+      "senderAvatar": "👤",
+      "text": "Hello from verification script!",
+      "reactions": {},
+      "createdAt": "2026-10-31T17:42:17.023Z"
+    },
+    {
+      "id": "msg-1793511013024-4b6y3",
+      "targetId": "dm:bot-spark:user-me799i",
+      "senderId": "user-me799i",
+      "senderName": "Zenith",
+      "senderAvatar": "🌟",
+      "text": "Hey everyone! 👋",
+      "reactions": {},
+      "createdAt": "2026-11-01T05:30:13.024Z"
+    },
+    {
+      "id": "msg-1793511169104-zzr33",
+      "targetId": "dm:guest-1:user-me799i",
+      "senderId": "user-me799i",
+      "senderName": "Zenith",
+      "senderAvatar": "🌟",
+      "text": "drsh",
+      "reactions": {},
+      "createdAt": "2026-11-01T05:32:49.104Z"
+    }
+  ],
+  "conversations": []
+}
