@@ -195,11 +195,23 @@ function ChatApp({ currentUser, onLogout }: { currentUser: User; onLogout: () =>
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previousConvRef = useRef<string | null>(null)
 
-  // ── Load conversations ──────────────────────────────────────────────────────
+  // ── Load conversations (with auto-selection for 2-device setup) ───────────
   const refreshConversations = useCallback(async () => {
     try {
       const { conversations: convs } = await api.getConversations()
       setConversations(convs)
+
+      if (convs.length > 0) {
+        setActiveConvId((prev) => prev ?? convs[0].id)
+      } else {
+        // If 0 conversations exist yet, check if the other user has registered
+        const { users } = await api.getUsers().catch(() => ({ users: [] }))
+        if (users.length === 1) {
+          const { conversation } = await api.createConversation(users[0].id)
+          setConversations([conversation])
+          setActiveConvId(conversation.id)
+        }
+      }
     } catch {
       // silent
     }
@@ -223,6 +235,7 @@ function ChatApp({ currentUser, onLogout }: { currentUser: User; onLogout: () =>
         if (prev.some((m) => m.id === msg.id)) return prev
         return [...prev, msg]
       })
+
       // bump conversation's lastMessageAt in list
       setConversations((prev) =>
         prev
@@ -237,7 +250,7 @@ function ChatApp({ currentUser, onLogout }: { currentUser: User; onLogout: () =>
               new Date(a.lastMessageAt).getTime()
           )
       )
-      // scroll down
+
       setTimeout(() => messagesBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
     })
 
@@ -306,27 +319,44 @@ function ChatApp({ currentUser, onLogout }: { currentUser: User; onLogout: () =>
     }
   }
 
-  // ── Send message ────────────────────────────────────────────────────────────
-  const sendMessage = () => {
+  // ── Send message (WebSocket with REST fallback) ─────────────────────────────
+  const sendMessage = async () => {
     const text = messageText.trim()
     if (!text || !activeConvId) return
     setSendError('')
+    setMessageText('')
 
     const socket = getSocket()
-    socket.emit(
-      'send_message',
-      { conversationId: activeConvId, text },
-      (result: { success: boolean; error?: string }) => {
-        if (!result.success) {
-          setSendError(result.error ?? 'Failed to send message.')
-        }
-      }
-    )
 
     // stop typing indicator
     socket.emit('typing_stop', { conversationId: activeConvId })
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
-    setMessageText('')
+
+    if (socket.connected) {
+      socket.emit(
+        'send_message',
+        { conversationId: activeConvId, text },
+        async (result: { success: boolean; error?: string }) => {
+          if (!result.success) {
+            // Socket emission rejected; fallback to REST API
+            try {
+              const res = await api.sendMessage(activeConvId, text)
+              setMessages((prev) => (prev.some((m) => m.id === res.message.id) ? prev : [...prev, res.message]))
+            } catch (err) {
+              setSendError(err instanceof Error ? err.message : 'Failed to send message.')
+            }
+          }
+        }
+      )
+    } else {
+      // Socket not connected; send via REST API
+      try {
+        const res = await api.sendMessage(activeConvId, text)
+        setMessages((prev) => (prev.some((m) => m.id === res.message.id) ? prev : [...prev, res.message]))
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : 'Failed to send message.')
+      }
+    }
   }
 
   // ── Typing indicators ───────────────────────────────────────────────────────
@@ -556,8 +586,8 @@ function ChatApp({ currentUser, onLogout }: { currentUser: User; onLogout: () =>
           <div className="empty-chat">
             <div className="empty-chat-icon">C</div>
             <h2>Your private space.</h2>
-            <p>Select a conversation to start messaging.</p>
-            <span>Private conversations. Just between you and them.</span>
+            <p>Select a conversation or click ✎ to start messaging.</p>
+            <span>Private conversations between your two devices.</span>
           </div>
         )}
       </section>

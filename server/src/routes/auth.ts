@@ -12,7 +12,7 @@ const router = Router();
 // Rate limiting for authentication endpoints.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: 50,
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: {
@@ -301,10 +301,15 @@ router.post(
         return;
       }
 
+      const isProduction =
+        process.env.NODE_ENV === "production" ||
+        process.env.RENDER === "true" ||
+        Boolean(process.env.RENDER_EXTERNAL_URL);
+
       res.clearCookie("connect.sid", {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
         path: "/",
       });
 
