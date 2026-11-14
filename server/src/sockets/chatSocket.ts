@@ -26,6 +26,10 @@ interface SendMessageResult {
     id: string;
     conversationId: string;
     senderId: string;
+    sender?: {
+      id: string;
+      displayName: string;
+    };
     text: string;
     createdAt: Date;
   };
@@ -258,6 +262,10 @@ export function setupChatSockets(io: SocketIOServer): void {
               id: message._id.toString(),
               conversationId: conversation._id.toString(),
               senderId: authenticatedUserId,
+              sender: {
+                id: authenticatedUserId,
+                displayName: user.displayName,
+              },
               text: message.text,
               createdAt: message.createdAt,
             };

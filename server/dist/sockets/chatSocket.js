@@ -162,6 +162,10 @@ export function setupChatSockets(io) {
                         id: message._id.toString(),
                         conversationId: conversation._id.toString(),
                         senderId: authenticatedUserId,
+                        sender: {
+                            id: authenticatedUserId,
+                            displayName: user.displayName,
+                        },
                         text: message.text,
                         createdAt: message.createdAt,
                     };

@@ -521,7 +521,8 @@ function ChatApp({ currentUser, onLogout }: { currentUser: User; onLogout: () =>
                   </div>
 
                   {group.messages.map((msg) => {
-                    const isMine = msg.sender?.id === currentUser.id
+                    const senderId = msg.sender?.id || msg.senderId
+                    const isMine = senderId === currentUser.id
                     return (
                       <div
                         key={msg.id}

@@ -15,7 +15,8 @@ export type Conversation = {
 export type Message = {
   id: string;
   conversationId: string;
-  sender: { id: string; displayName: string } | null;
+  sender?: { id: string; displayName: string } | null;
+  senderId?: string;
   text: string;
   createdAt: string;
 };
