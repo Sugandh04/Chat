@@ -5,6 +5,7 @@ import express from "express";
 import helmet from "helmet";
 import mongoose from "mongoose";
 import { Server } from "socket.io";
+import { User } from "./models.js";
 
 const origins = (process.env.CLIENT_URL || "")
   .split(",")
@@ -45,5 +46,18 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 const uri = process.env.MONGODB_URI;
 if (!uri) throw new Error("MONGODB_URI is required");
 await mongoose.connect(uri);
+
+// Bring accounts from the previous app into the new shape, and make sure an admin exists.
+await User.updateMany({ name: { $exists: false }, displayName: { $exists: true } }, [{ $set: { name: "$displayName" } }], { updatePipeline: true });
+await User.updateMany({ role: { $exists: false } }, { $set: { role: "member" } });
+if (!(await User.exists({ role: "admin" }))) {
+  const email = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const target = email ? await User.findOne({ email }) : await User.findOne().sort({ createdAt: 1 });
+  if (target) {
+    target.role = "admin";
+    await target.save();
+    console.log(`Admin set to ${target.email}`);
+  }
+}
 const port = Number(process.env.PORT) || 5000;
 server.listen(port, () => console.log(`API listening on ${port}`));

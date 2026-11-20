@@ -3,7 +3,8 @@ import mongoose, { Schema } from "mongoose";
 const user = new Schema(
   {
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-    name: { type: String, required: true, trim: true, maxlength: 60 },
+    name: { type: String, trim: true, maxlength: 60 },
+    displayName: { type: String, trim: true }, // legacy field from the previous app
     passwordHash: { type: String, required: true },
     role: { type: String, enum: ["admin", "member"], default: "member" },
   },
@@ -46,6 +47,7 @@ const message = new Schema(
 message.index({ conversation: 1, createdAt: -1 });
 
 export const User = mongoose.model("User", user);
-export const Invite = mongoose.model("Invite", invite);
-export const Conversation = mongoose.model("Conversation", conversation);
-export const Message = mongoose.model("Message", message);
+// New collections are kept apart from the previous app's data (users are shared on purpose).
+export const Invite = mongoose.model("Invite", invite, "chat_invites");
+export const Conversation = mongoose.model("Conversation", conversation, "chat_conversations");
+export const Message = mongoose.model("Message", message, "chat_messages");

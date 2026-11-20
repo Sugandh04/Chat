@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import argon2 from "argon2";
 import bcrypt from "bcryptjs";
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
@@ -72,7 +73,19 @@ export function buildRouter(io: Server) {
     const email = str(req.body.email).toLowerCase();
     const password = typeof req.body.password === "string" ? req.body.password : "";
     const user = await User.findOne({ email });
-    const ok = user && (await bcrypt.compare(password, user.passwordHash));
+    let ok = false;
+    if (user) {
+      if (user.passwordHash.startsWith("$argon2")) {
+        // Account created by the previous app: verify, then upgrade the stored hash.
+        ok = await argon2.verify(user.passwordHash, password).catch(() => false);
+        if (ok) {
+          user.passwordHash = await bcrypt.hash(password, 12);
+          await user.save();
+        }
+      } else {
+        ok = await bcrypt.compare(password, user.passwordHash);
+      }
+    }
     if (!user || !ok) return void res.status(401).json({ error: "Incorrect email or password." });
     res.json({ token: signToken(String(user._id)), user: publicUser(user) });
   });
