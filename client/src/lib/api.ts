@@ -1,7 +1,12 @@
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
-const fallback = Platform.OS === "android" ? "http://10.0.2.2:5000" : "http://localhost:5000";
+// Production builds fall back to the deployed API; development uses the local server.
+const fallback = __DEV__
+  ? Platform.OS === "android"
+    ? "http://10.0.2.2:5000"
+    : "http://localhost:5000"
+  : "https://chat-mpbz.onrender.com";
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || fallback).replace(/\/$/, "");
 
 const KEY = "chat.token";
