@@ -10,7 +10,9 @@ Private, invite-only messaging. One Expo codebase for web, Android and iOS (`cli
 ## Client (Vercel for web)
 - Root directory: `client`, build: `npm run build`, output: `dist`.
 - Env: `EXPO_PUBLIC_API_URL` = your Render URL (no trailing slash). Optional `EXPO_PUBLIC_WEB_URL` = your Vercel URL, used to build invite links.
-- Mobile: on hold. The Android app shares this codebase. On Windows, building the native app locally fails because the native C++ build paths exceed 260 characters (needs Windows long paths enabled plus a newer CMake/Ninja). Use Expo Go (`npx expo start --android`) or an EAS cloud build (`npx eas-cli build -p android --profile preview`) when you pick this back up.
+- Android app (same codebase):
+  - Develop: start the emulator, then `npx expo start --android` (uses Expo Go; the app reaches a local server at `http://10.0.2.2:5000`).
+  - Installable APK: `npx eas-cli login`, `npx eas-cli init` (once), then `npx eas-cli build -p android --profile preview`. Open the link EAS prints on your phone to download and install the APK. Builds run in Expo's cloud; local native builds fail on Windows because native build paths exceed 260 characters.
 
 ## Local development
 ```

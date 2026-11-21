@@ -1,7 +1,7 @@
 import { Link } from "expo-router";
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
-import { Button, ErrorText, Field, Screen, Txt } from "../components/ui";
+import { Platform, ScrollView, View } from "react-native";
+import { Button, ErrorText, Field, Screen, Txt, KeyboardView } from "../components/ui";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 
@@ -27,7 +27,7 @@ export default function SignIn() {
 
   return (
     <Screen>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+      <KeyboardView hasHeader={false}>
         <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 28 }} keyboardShouldPersistTaps="handled">
           <View style={{ gap: 6, marginBottom: 36 }}>
             <Txt size={30} weight="600">
@@ -68,7 +68,7 @@ export default function SignIn() {
             </Link>
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardView>
     </Screen>
   );
 }

@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from "react-native";
-import { Screen, Txt, formatTime } from "../../components/ui";
+import { FlatList, Platform, Pressable, TextInput, View } from "react-native";
+import { Screen, Txt, formatTime, KeyboardView } from "../../components/ui";
 import { Chat, Message, api } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { useTheme } from "../../lib/theme";
@@ -102,7 +102,7 @@ export default function ChatScreen() {
 
   return (
     <Screen title={title ?? ""} back="Back">
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }} keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}>
+      <KeyboardView hasHeader={true}>
         <FlatList
           inverted
           data={rows}
@@ -204,7 +204,7 @@ export default function ChatScreen() {
             </Txt>
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardView>
     </Screen>
   );
 }

@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
-import { Button, ErrorText, Field, Screen, Txt } from "../components/ui";
+import { Platform, ScrollView, View } from "react-native";
+import { Button, ErrorText, Field, Screen, Txt, KeyboardView } from "../components/ui";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 
@@ -30,7 +30,7 @@ export default function Register() {
 
   return (
     <Screen title="Create account" back="Back">
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+      <KeyboardView hasHeader={true}>
         <ScrollView contentContainerStyle={{ padding: 28, gap: 16 }} keyboardShouldPersistTaps="handled">
           <Txt tone="muted" style={{ marginBottom: 8 }}>
             Enter the invite code you were sent.
@@ -64,7 +64,7 @@ export default function Register() {
             />
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardView>
     </Screen>
   );
 }

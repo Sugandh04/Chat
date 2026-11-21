@@ -1,6 +1,7 @@
 import React from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Pressable,
   StyleProp,
   StyleSheet,
@@ -12,7 +13,7 @@ import {
   ViewStyle,
 } from "react-native";
 import { router } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { FRAME_WIDTH, useTheme } from "../lib/theme";
 
 export function Screen({
@@ -56,6 +57,20 @@ export function Screen({
         {children}
       </View>
     </SafeAreaView>
+  );
+}
+
+/** Keeps content above the on-screen keyboard on every platform (Android is edge-to-edge). */
+export function KeyboardView({ children, hasHeader = true }: { children: React.ReactNode; hasHeader?: boolean }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <KeyboardAvoidingView
+      behavior="padding"
+      keyboardVerticalOffset={insets.top + (hasHeader ? 56 : 0)}
+      style={{ flex: 1 }}
+    >
+      {children}
+    </KeyboardAvoidingView>
   );
 }
 
