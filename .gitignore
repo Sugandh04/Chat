@@ -1,1 +1,4 @@
 expo-start.log
+*.apk
+gradle-release.log
+*.log
