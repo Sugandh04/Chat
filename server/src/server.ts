@@ -5,7 +5,7 @@ import express from "express";
 import helmet from "helmet";
 import mongoose from "mongoose";
 import { Server } from "socket.io";
-import { User } from "./models.js";
+import { Conversation, User } from "./models.js";
 
 const origins = (process.env.CLIENT_URL || "")
   .split(",")
@@ -32,8 +32,35 @@ io.use((socket, next) => {
   socket.data.userId = id;
   next();
 });
+// Calls: the server only relays signalling between the two members of a direct chat.
+const CALL_TYPES = new Set(["invite", "accept", "decline", "end", "offer", "answer", "ice"]);
 io.on("connection", (socket) => {
-  socket.join(`user:${socket.data.userId}`);
+  const me = String(socket.data.userId);
+  socket.join(`user:${me}`);
+  const allowed = new Map<string, boolean>();
+  socket.on("call", async (p: Record<string, unknown>) => {
+    try {
+      const type = String(p?.type);
+      const chatId = String(p?.chatId);
+      const to = String(p?.to);
+      if (!CALL_TYPES.has(type) || to === me) return;
+      const key = `${chatId}:${to}`;
+      if (!allowed.has(key)) {
+        allowed.set(key, !!(await Conversation.exists({ _id: chatId, type: "direct", members: { $all: [me, to] } })));
+      }
+      if (!allowed.get(key)) return;
+      io.to(`user:${to}`).emit("call", {
+        type,
+        chatId,
+        callId: String(p.callId || "").slice(0, 64),
+        from: me,
+        video: !!p.video,
+        data: p.data ?? null,
+      });
+    } catch {
+      /* ignore malformed signalling */
+    }
+  });
 });
 
 app.get("/", (_req, res) => void res.json({ ok: true }));

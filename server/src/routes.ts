@@ -97,6 +97,21 @@ export function buildRouter(io: Server) {
     res.json({ user: publicUser(user) });
   });
 
+  // STUN always; add a TURN relay (TURN_URL, TURN_USERNAME, TURN_CREDENTIAL) for networks that block direct calls.
+  r.get("/ice", (_req, res) => {
+    const iceServers: { urls: string | string[]; username?: string; credential?: string }[] = [
+      { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+    ];
+    if (process.env.TURN_URL) {
+      iceServers.push({
+        urls: process.env.TURN_URL.split(",").map((s) => s.trim()),
+        username: process.env.TURN_USERNAME,
+        credential: process.env.TURN_CREDENTIAL,
+      });
+    }
+    res.json({ iceServers });
+  });
+
   r.patch("/me", async (req, res) => {
     const name = str(req.body.name, 60);
     if (!name) return void res.status(400).json({ error: "Name is required." });

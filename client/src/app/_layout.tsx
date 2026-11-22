@@ -1,5 +1,6 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { CallOverlay, CallProvider } from "../lib/calls";
 import { SessionProvider, useSession } from "../lib/session";
 import { useTheme } from "../lib/theme";
 
@@ -29,7 +30,10 @@ function Root() {
 export default function RootLayout() {
   return (
     <SessionProvider>
-      <Root />
+      <CallProvider>
+        <Root />
+        <CallOverlay />
+      </CallProvider>
     </SessionProvider>
   );
 }

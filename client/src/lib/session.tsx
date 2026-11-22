@@ -12,6 +12,19 @@ interface Session {
   setUser: (u: User) => void;
   subscribe: (fn: Listener) => () => void;
   onChatsChanged: (fn: () => void) => () => void;
+  sendCall: (p: CallSignal) => void;
+  onCall: (fn: (p: CallSignal) => void) => () => void;
+}
+
+/** A call signalling message relayed by the server between two members of a direct chat. */
+export interface CallSignal {
+  type: "invite" | "accept" | "decline" | "end" | "offer" | "answer" | "ice";
+  chatId: string;
+  to?: string;
+  from?: string;
+  callId: string;
+  video?: boolean;
+  data?: unknown;
 }
 
 const Ctx = createContext<Session | null>(null);
@@ -27,6 +40,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const messageListeners = useRef(new Set<Listener>());
   const chatListeners = useRef(new Set<() => void>());
+  const callListeners = useRef(new Set<(p: CallSignal) => void>());
   const socketRef = useRef<Socket | null>(null);
 
   const signOut = useCallback(async () => {
@@ -60,6 +74,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     socketRef.current = socket;
     socket.on("message", (m: Message) => messageListeners.current.forEach((fn) => fn(m)));
     socket.on("chat", () => chatListeners.current.forEach((fn) => fn()));
+    socket.on("call", (p: CallSignal) => callListeners.current.forEach((fn) => fn(p)));
     socket.on("connect", () => chatListeners.current.forEach((fn) => fn()));
     return () => {
       socket.disconnect();
@@ -86,6 +101,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       onChatsChanged: (fn) => {
         chatListeners.current.add(fn);
         return () => void chatListeners.current.delete(fn);
+      },
+      sendCall: (p) => void socketRef.current?.emit("call", p),
+      onCall: (fn) => {
+        callListeners.current.add(fn);
+        return () => void callListeners.current.delete(fn);
       },
     }),
     [ready, user, signOut]

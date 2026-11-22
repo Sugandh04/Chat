@@ -97,6 +97,7 @@ export const api = {
     request<{ token: string; user: User }>("/auth/register", { method: "POST", body: b }),
   me: () => request<{ user: User }>("/me"),
   updateName: (name: string) => request<{ user: User }>("/me", { method: "PATCH", body: { name } }),
+  ice: () => request<{ iceServers: { urls: string | string[]; username?: string; credential?: string }[] }>("/ice"),
   users: () => request<{ users: User[] }>("/users"),
   chats: () => request<{ chats: Chat[] }>("/chats"),
   createChat: (b: { type: "direct" | "group"; memberIds: string[]; name?: string }) =>

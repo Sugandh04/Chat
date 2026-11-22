@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Platform, Pressable, TextInput, View } from "react-native";
 import { Screen, Txt, formatTime, KeyboardView } from "../../components/ui";
 import { Chat, Message, api } from "../../lib/api";
+import { useCalls } from "../../lib/calls";
 import { useSession } from "../../lib/session";
 import { useTheme } from "../../lib/theme";
 
@@ -13,6 +14,8 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]); // newest first
   const [names, setNames] = useState<Record<string, string>>({});
   const [isGroup, setIsGroup] = useState(false);
+  const [peerId, setPeerId] = useState("");
+  const calls = useCalls();
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
@@ -41,6 +44,7 @@ export default function ChatScreen() {
         if (!c) return;
         setIsGroup(c.type === "group");
         setNames(Object.fromEntries(c.members.map((m) => [m.id, m.name])));
+        setPeerId(c.type === "direct" ? c.members.find((m) => m.id !== user?.id)?.id ?? "" : "");
       })
       .catch(() => {});
   }, [id, load]);
@@ -101,7 +105,29 @@ export default function ChatScreen() {
   );
 
   return (
-    <Screen title={title ?? ""} back="Back">
+    <Screen
+      title={title ?? ""}
+      back="Back"
+      right={
+        calls.supported && peerId ? (
+          <View style={{ flexDirection: "row", gap: 18 }}>
+            {(["Voice", "Video"] as const).map((label) => (
+              <Pressable
+                key={label}
+                hitSlop={8}
+                disabled={calls.busy}
+                onPress={() => calls.start(id, peerId, names[peerId] ?? title ?? "", label === "Video")}
+                style={{ opacity: calls.busy ? 0.4 : 1 }}
+              >
+                <Txt size={15} tone="muted">
+                  {label}
+                </Txt>
+              </Pressable>
+            ))}
+          </View>
+        ) : undefined
+      }
+    >
       <KeyboardView hasHeader={true}>
         <FlatList
           inverted
