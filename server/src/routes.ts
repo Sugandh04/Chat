@@ -98,7 +98,17 @@ export function buildRouter(io: Server) {
   });
 
   // STUN always; add a TURN relay (TURN_URL, TURN_USERNAME, TURN_CREDENTIAL) for networks that block direct calls.
-  r.get("/ice", (_req, res) => {
+  // Easiest: a free Metered account, then set METERED_DOMAIN (e.g. myapp.metered.live) and METERED_API_KEY.
+  r.get("/ice", async (_req, res) => {
+    const { METERED_DOMAIN, METERED_API_KEY } = process.env;
+    if (METERED_DOMAIN && METERED_API_KEY) {
+      try {
+        const r2 = await fetch(`https://${METERED_DOMAIN}/api/v1/turn/credentials?apiKey=${encodeURIComponent(METERED_API_KEY)}`);
+        if (r2.ok) return void res.json({ iceServers: await r2.json() });
+      } catch {
+        /* fall back to STUN only */
+      }
+    }
     const iceServers: { urls: string | string[]; username?: string; credential?: string }[] = [
       { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
     ];

@@ -110,11 +110,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     localRef.current?.getTracks().forEach((t) => pc.addTrack(t, localRef.current!));
     pc.onicecandidate = (e) => e.candidate && signal("ice", e.candidate.toJSON());
     pc.ontrack = (e) => setRemote(e.streams[0] ?? new MediaStream([e.track]));
+    const giveUp = () => {
+      signal("end");
+      cleanup("Could not connect. These networks may need a relay server.");
+    };
+    // Don't hang on "Connecting" forever.
+    const connectTimer = setTimeout(() => stateRef.current.phase === "connecting" && giveUp(), 20_000);
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "connected") update({ phase: "connected" });
-      else if (pc.connectionState === "failed") {
-        signal("end");
-        cleanup("Connection lost.");
+      if (pc.connectionState === "connected") {
+        clearTimeout(connectTimer);
+        update({ phase: "connected" });
+      } else if (pc.connectionState === "failed") {
+        clearTimeout(connectTimer);
+        if (stateRef.current.phase === "connected") {
+          signal("end");
+          cleanup("Connection lost.");
+        } else giveUp();
       }
     };
     return pc;
